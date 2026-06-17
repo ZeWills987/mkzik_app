@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mkzik — Installer la bêta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0E1B1E;
+    --panel: #15292B;
+    --ink: #F4EFE3;
+    --muted: #9FB3AE;
+    --accent: #C75B39;
+    --accent-soft: rgba(199,91,57,0.16);
+    --line: #2F5C56;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{
+    margin:0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Work Sans", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body{
+    min-height: 100vh;
+    display:flex;
+    justify-content:center;
+    padding: 0 0 64px;
+  }
+
+  a{ color: inherit; }
+
+  .page{
+    width: 100%;
+    max-width: 480px;
+    position: relative;
+  }
+
+  /* --- motif décoratif (bande de triangles, inspirée des motifs géométriques marquisiens) --- */
+  .pattern{
+    width: 100%;
+    height: 18px;
+    display:block;
+  }
+  .pattern path{ fill: var(--line); }
+
+  header{
+    padding: 56px 28px 36px;
+    text-align:center;
+  }
+
+  .eyebrow{
+    display:inline-flex;
+    align-items:center;
+    gap: 8px;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid rgba(199,91,57,0.35);
+    border-radius: 999px;
+    padding: 6px 14px;
+    margin-bottom: 28px;
+  }
+
+  .eyebrow::before{
+    content:"";
+    width:6px; height:6px;
+    border-radius:50%;
+    background: var(--accent);
+  }
+
+  h1{
+    font-family: "Big Shoulders Display", sans-serif;
+    font-weight: 800;
+    font-size: clamp(56px, 18vw, 76px);
+    line-height: 0.9;
+    letter-spacing: 0.01em;
+    margin: 0 0 18px;
+  }
+
+  .tagline{
+    font-size: 17px;
+    color: var(--muted);
+    line-height: 1.5;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+
+  main{ padding: 8px 24px 0; }
+
+  .steps{
+    display:flex;
+    flex-direction:column;
+    gap: 14px;
+    margin-bottom: 36px;
+  }
+
+  .step{
+    background: var(--panel);
+    border: 1px solid rgba(159,179,174,0.12);
+    border-radius: 16px;
+    padding: 20px 20px 22px;
+    display:flex;
+    gap: 16px;
+  }
+
+  .step-num{
+    font-family: "Big Shoulders Display", sans-serif;
+    font-weight: 800;
+    font-size: 34px;
+    color: var(--accent);
+    line-height: 1;
+    flex-shrink:0;
+    width: 36px;
+  }
+
+  .step-body h2{
+    font-family: "Work Sans", sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    margin: 2px 0 6px;
+  }
+
+  .step-body p{
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.5;
+    margin: 0 0 12px;
+  }
+
+  .step-link{
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(199,91,57,0.4);
+    padding-bottom: 1px;
+  }
+
+  .cta{
+    display:block;
+    width:100%;
+    text-align:center;
+    background: var(--accent);
+    color: var(--ink);
+    font-size: 16px;
+    font-weight: 600;
+    text-decoration:none;
+    padding: 17px 20px;
+    border-radius: 14px;
+    border: none;
+    cursor:pointer;
+  }
+
+  .cta:focus-visible, .secondary:focus-visible, .step-link:focus-visible{
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
+  }
+
+  .secondary{
+    display:block;
+    width:100%;
+    text-align:center;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 14px 20px;
+    border-radius: 14px;
+    border: 1px solid rgba(159,179,174,0.25);
+    margin-top: 10px;
+    cursor:pointer;
+  }
+
+  .secondary.copied{
+    color: var(--accent);
+    border-color: rgba(199,91,57,0.4);
+  }
+
+  footer{
+    padding: 40px 28px 0;
+    text-align:center;
+  }
+
+  footer p{
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 0 0 6px;
+  }
+
+  footer .signature{
+    margin-top: 22px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(159,179,174,0.6);
+  }
+
+  @media (prefers-reduced-motion: no-preference){
+    .step{ transition: transform 0.15s ease; }
+    .step:active{ transform: scale(0.99); }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <svg class="pattern" viewBox="0 0 240 18" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0,18 L10,0 L20,18 Z M20,18 L30,0 L40,18 Z M40,18 L50,0 L60,18 Z M60,18 L70,0 L80,18 Z M80,18 L90,0 L100,18 Z M100,18 L110,0 L120,18 Z M120,18 L130,0 L140,18 Z M140,18 L150,0 L160,18 Z M160,18 L170,0 L180,18 Z M180,18 L190,0 L200,18 Z M200,18 L210,0 L220,18 Z M220,18 L230,0 L240,18 Z"/>
+  </svg>
+
+  <header>
+    <span class="eyebrow">Bêta privée</span>
+    <h1>MKZIK</h1>
+    <p class="tagline">Mon appli de streaming musical perso. Trois étapes, deux minutes, zéro App&nbsp;Store.</p>
+  </header>
+
+  <main>
+    <div class="steps">
+      <div class="step">
+        <span class="step-num">1</span>
+        <div class="step-body">
+          <h2>Installe AltStore Classic</h2>
+          <p>C'est ce qui te permet d'installer des apps en dehors de l'App Store, signées avec ton propre Apple ID.</p>
+          <a class="step-link" href="https://faq.altstore.io/getting-started/installing-altstore" target="_blank" rel="noopener">Voir comment l'installer →</a>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-num">2</span>
+        <div class="step-body">
+          <h2>Ajoute ma source</h2>
+          <p>Un tap relie ton AltStore à mon petit catalogue perso, où vit Mkzik.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-num">3</span>
+        <div class="step-body">
+          <h2>Installe Mkzik</h2>
+          <p>L'app apparaît dans AltStore, prête à lancer sur ton iPhone.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ⚠️ Remplace SOURCE_URL par l'URL publique de ton fichier altstore-source.json -->
+    <a class="cta" id="addSourceBtn" href="altstore://source?url=SOURCE_URL">Ajouter à AltStore</a>
+    <button class="secondary" id="copyBtn">Copier le lien de la source</button>
+  </main>
+
+  <footer>
+    <p>L'app se re-signe automatiquement tous les 7 jours. Si elle arrête de fonctionner un matin, rouvre simplement AltStore pour la relancer.</p>
+    <p class="signature">Fait à Bordeaux, avec un peu d'identité marquisienne dedans</p>
+  </footer>
+
+  <svg class="pattern" viewBox="0 0 240 18" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0,18 L10,0 L20,18 Z M20,18 L30,0 L40,18 Z M40,18 L50,0 L60,18 Z M60,18 L70,0 L80,18 Z M80,18 L90,0 L100,18 Z M100,18 L110,0 L120,18 Z M120,18 L130,0 L140,18 Z M140,18 L150,0 L160,18 Z M160,18 L170,0 L180,18 Z M180,18 L190,0 L200,18 Z M200,18 L210,0 L220,18 Z M220,18 L230,0 L240,18 Z"/>
+  </svg>
+
+</div>
+
+<script>
+  // ⚠️ Même URL que dans le bouton "Ajouter à AltStore" ci-dessus
+  const SOURCE_URL = "SOURCE_URL";
+
+  const copyBtn = document.getElementById("copyBtn");
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(SOURCE_URL);
+      copyBtn.textContent = "Copié ✓";
+      copyBtn.classList.add("copied");
+      setTimeout(() => {
+        copyBtn.textContent = "Copier le lien de la source";
+        copyBtn.classList.remove("copied");
+      }, 2000);
+    } catch (e) {
+      copyBtn.textContent = "Impossible de copier — fais un appui long sur le lien";
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "name": "Mkzik Source",
+  "subtitle": "Apps perso de William",
+  "description": "Source perso pour installer Mkzik en avant-première sur AltStore Classic.",
+  "iconURL": "REMPLACE_https://.../icon-mkzik.png",
+  "tintColor": "#REMPLACE_(ex: 1A1A2E)",
+  "apps": [
+    {
+      "name": "Mkzik",
+      "bundleIdentifier": "REMPLACE_com.example.mkzik",
+      "developerName": "William Tchang",
+      "subtitle": "Streaming musical, identité polynésienne",
+      "localizedDescription": "Mkzik est une plateforme de streaming musical personnelle avec une identité visuelle polynésienne (motifs Patutiki marquisiens).",
+      "iconURL": "REMPLACE_https://.../icon-mkzik.png",
+      "tintColor": "#REMPLACE_(même couleur que ci-dessus)",
+      "category": "entertainment",
+      "screenshots": [
+        "REMPLACE_https://.../screenshot1.png",
+        "REMPLACE_https://.../screenshot2.png"
+      ],
+      "versions": [
+        {
+          "version": "REMPLACE_1.0.0",
+          "buildVersion": "REMPLACE_1",
+          "date": "2026-06-17",
+          "localizedDescription": "Première version de test pour les amis.",
+          "downloadURL": "REMPLACE_https://github.com/TON_USER/TON_REPO/releases/download/build-1/app-release.ipa",
+          "size": 0
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSPhotoLibraryUsageDescription": "REMPLACE_si utilisé (ex: pour choisir une photo de profil)",
+          "NSMicrophoneUsageDescription": "REMPLACE_si utilisé"
+        }
+      }
+    }
+  ]
+}
