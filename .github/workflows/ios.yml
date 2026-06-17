@@ -14,6 +14,12 @@ permissions:
 
 jobs:
   build-ios:
+    # Ne se lance que si le message du commit contient [ios] ou [build]
+    # (ou via "Run workflow" manuel).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[ios]') ||
+      contains(github.event.head_commit.message, '[build]')
     # macOS requis pour la chaîne Apple. macos-15 = Sequoia (a Xcode 26).
     # Si Xcode 26 n'est pas trouvé, passe à "macos-26".
     runs-on: macos-15

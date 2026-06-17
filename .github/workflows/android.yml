@@ -13,6 +13,12 @@ permissions:
 
 jobs:
   build-android:
+    # Ne se lance que si le message du commit contient [android] ou [build]
+    # (ou via "Run workflow" manuel).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[android]') ||
+      contains(github.event.head_commit.message, '[build]')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout du code
