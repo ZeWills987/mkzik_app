@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Configuration réseau DEBUG uniquement : autorise le HTTP en clair pour
+     joindre le serveur de dev local (10.0.2.2, IP LAN…). Ce fichier remplace
+     celui de main/ dans les builds debug, jamais en release. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

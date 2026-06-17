@@ -10,17 +10,14 @@
 	<!-- Accès photothèque pour changer avatar / bannière (image_picker) -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Mkzik a besoin d'accéder à tes photos pour choisir ton avatar et ta bannière.</string>
-	<!-- Réseau : autorise le HTTP en développement (API Symfony / Python en local).
-	     ⚠️ Avant publication App Store : passer l'API en HTTPS et mettre
-	     NSAllowsArbitraryLoads à false. Équivaut au usesCleartextTraffic d'Android. -->
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
-	<!-- Accès au réseau local pour joindre le serveur de dev sur le LAN (iOS 14+) -->
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Mkzik se connecte à ton serveur de développement sur le réseau local.</string>
+	<!-- App Transport Security : HTTPS strict (défaut sécurisé Apple, conforme
+	     App Store). L'API Mkzik est en HTTPS → aucune exception cleartext requise.
+	     Pour tester un serveur HTTP local en dev, ajouter ici un bloc
+	     NSExceptionDomains ciblé — ne PAS réactiver NSAllowsArbitraryLoads. -->
+	<!-- Conformité chiffrement export : l'app n'utilise que HTTPS / chiffrement
+	     standard exempté → évite l'invite à chaque envoi sur App Store Connect. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

@@ -19,7 +19,9 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        // Play Store exige targetSdk >= 35 (Android 15) pour les nouvelles apps
+        // et les mises à jour depuis fin août 2025.
+        targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }

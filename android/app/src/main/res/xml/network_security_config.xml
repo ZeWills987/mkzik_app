@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Configuration réseau RELEASE : aucun trafic en clair (HTTP) autorisé.
+     L'API Mkzik est en HTTPS → conforme aux exigences Play Store.
+     L'override pour le dev local vit dans src/debug/res/xml/. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>
