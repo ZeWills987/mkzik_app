@@ -1,0 +1,82 @@
+name: Release iOS (IPA signé — App Store)
+
+# Construit un .ipa SIGNÉ pour l'App Store et l'expose en artifact.
+# Déclenché manuellement ou par un commit contenant [appstore].
+# Requiert un compte Apple Developer (99 $/an) et les secrets GitHub (voir
+# RELEASE.md) :
+#   IOS_DIST_CERT_P12_BASE64, IOS_DIST_CERT_PASSWORD,
+#   IOS_PROVISIONING_PROFILE_BASE64, MOBILE_ENV_FILE
+# + renseigner teamID dans ios/ExportOptions.plist.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build-ipa:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[appstore]')
+    runs-on: macos-15
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Préparer le fichier .env
+        env:
+          ENV_FILE: ${{ secrets.MOBILE_ENV_FILE }}
+        run: |
+          if [ -n "$ENV_FILE" ]; then printf '%s' "$ENV_FILE" > .env; else touch .env; fi
+
+      - name: Importer certificat de distribution + profil
+        env:
+          CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          if [ -z "$CERT_P12_BASE64" ]; then
+            echo "::error::Secrets iOS manquants — voir RELEASE.md"
+            exit 1
+          fi
+          KEYCHAIN="$RUNNER_TEMP/app.keychain-db"
+          security create-keychain -p actions "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p actions "$KEYCHAIN"
+          echo "$CERT_P12_BASE64" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN"
+          PROFILES="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES"
+          echo "$PROFILE_BASE64" | base64 -d > "$PROFILES/mkzik.mobileprovision"
+
+      - name: Sélectionner Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Installer Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.2
+          channel: stable
+          cache: true
+
+      - name: Forcer CocoaPods (désactiver SPM)
+        run: flutter config --no-enable-swift-package-manager
+
+      - name: Récupérer les dépendances
+        run: flutter pub get
+
+      - name: Build IPA signé (App Store)
+        run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+
+      - name: Publier l'IPA en artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mkzik-appstore-ipa
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error

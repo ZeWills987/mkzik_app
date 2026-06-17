@@ -1,0 +1,11 @@
+# Modèle de configuration de signature release Android.
+# COPIE ce fichier en `android/key.properties` (jamais committé) et renseigne
+# tes vraies valeurs. Voir RELEASE.md pour générer le keystore.
+#
+# storeFile : chemin du keystore RELATIF à android/app/ (ou chemin absolu).
+#             Recommandé : placer le .jks dans android/app/ et mettre juste le nom.
+
+storePassword=motDePasseDuKeystore
+keyPassword=motDePasseDeLaCle
+keyAlias=mkzik
+storeFile=mkzik-release.jks

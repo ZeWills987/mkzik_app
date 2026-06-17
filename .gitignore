@@ -1,6 +1,16 @@
 # Environnement (ne pas committer les URLs/secrets — garder .env.example)
 .env
 
+# Signature release Android — NE JAMAIS committer (clé privée = identité de l'app)
+android/key.properties
+*.jks
+*.keystore
+
+# Signature release iOS — certificats / profils
+*.p12
+*.mobileprovision
+ios/Runner/GoogleService-Info.plist
+
 # Miscellaneous
 *.class
 *.log
