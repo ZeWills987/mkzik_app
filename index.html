@@ -186,6 +186,36 @@
     border-color: rgba(199,91,57,0.4);
   }
 
+  /* --- séparateur "ou sur Android" --- */
+  .divider{
+    display:flex;
+    align-items:center;
+    gap: 14px;
+    margin: 30px 0 18px;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .divider::before, .divider::after{
+    content:"";
+    flex:1;
+    height:1px;
+    background: rgba(159,179,174,0.18);
+  }
+
+  .android p{
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.5;
+    text-align:center;
+    margin: 0 0 14px;
+  }
+  .android .hint{
+    margin-top: 10px;
+    font-size: 12px;
+  }
+
   footer{
     padding: 40px 28px 0;
     text-align:center;
@@ -256,6 +286,17 @@
     <!-- ⚠️ Remplace SOURCE_URL par l'URL publique de ton fichier altstore-source.json -->
     <a class="cta" id="addSourceBtn" href="altstore://source?url=SOURCE_URL">Ajouter à AltStore</a>
     <button class="secondary" id="copyBtn">Copier le lien de la source</button>
+
+    <!-- ── Android ────────────────────────────────────────────────── -->
+    <div class="divider">ou sur Android</div>
+
+    <div class="android">
+      <p>Pas besoin d'AltStore — installe l'app directement.</p>
+      <!-- ⚠️ Remplace APK_URL par l'URL de l'APK
+           (release GitHub : .../releases/download/android-latest/app-release.apk) -->
+      <a class="cta" id="apkBtn" href="APK_URL" download>Télécharger l'APK Android</a>
+      <p class="hint">Si Android le demande, autorise « installer des apps de cette source ».</p>
+    </div>
   </main>
 
   <footer>

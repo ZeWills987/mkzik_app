@@ -1,13 +1,16 @@
 name: Build iOS (non signé)
 
-# Compile un .ipa NON signé sur un runner macOS gratuit (repo public).
-# À récupérer ensuite dans l'onglet "Actions" → artifact "mkzik-ipa",
-# puis à signer/installer avec Sideloadly (Apple ID gratuit, 7 jours).
+# Compile un .ipa NON signé et le publie dans une Release GitHub à tag fixe
+# (ios-latest) → URL stable pour altstore-source.json. À installer ensuite
+# avec AltStore / Sideloadly (Apple ID gratuit, à refaire tous les 7 jours).
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: {}   # permet de lancer le build à la main
+  workflow_dispatch: {}   # lancement manuel possible
+
+permissions:
+  contents: write   # requis pour créer/mettre à jour la Release
 
 jobs:
   build-ios:
@@ -47,21 +50,44 @@ jobs:
       - name: Récupérer les dépendances
         run: flutter pub get
 
-      - name: Build iOS (non signé)
-        run: flutter build ios --release --no-codesign
+      # Génère la config Xcode SANS lancer le build (évite le check "Development
+      # Team" de Flutter sur les builds device).
+      - name: Préparer la config Xcode
+        run: flutter build ios --release --no-codesign --config-only
 
-      # flutter produit un Runner.app → on l'empaquette en .ipa pour Sideloadly.
+      - name: Installer les pods
+        run: |
+          cd ios
+          pod install
+
+      # Build via xcodebuild avec la signature TOTALEMENT désactivée → aucune
+      # équipe / profil requis. Sortie dans build/ios_out.
+      - name: Build iOS non signé
+        run: |
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/ios_out \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            build
+
+      # Le Runner.app produit est empaqueté en .ipa pour AltStore / Sideloadly.
       - name: Empaqueter en .ipa
         run: |
-          cd build/ios/iphoneos
+          cd build/ios_out/Build/Products/Release-iphoneos
           mkdir -p Payload
           cp -R Runner.app Payload/
-          zip -qq -r mkzik.ipa Payload
+          zip -qq -r "$GITHUB_WORKSPACE/mkzik.ipa" Payload
 
-      - name: Publier l'IPA en artifact
-        uses: actions/upload-artifact@v4
+      # Tag fixe "ios-latest" → l'URL de l'IPA ne change jamais.
+      - name: Publier l'IPA dans une Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: mkzik-ipa
-          path: build/ios/iphoneos/mkzik.ipa
-          if-no-files-found: error
-          retention-days: 14
+          tag_name: ios-latest
+          name: "Mkzik iOS (dernier build)"
+          files: mkzik.ipa
