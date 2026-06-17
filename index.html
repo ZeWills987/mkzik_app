@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mkzik — Installer la bêta</title>
+<title>Mkzik — Installer la bêta (SideStore)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -252,7 +252,7 @@
   <header>
     <span class="eyebrow">Bêta privée</span>
     <h1>MKZIK</h1>
-    <p class="tagline">Mon appli de streaming musical perso. Trois étapes, deux minutes, zéro App&nbsp;Store.</p>
+    <p class="tagline">Mon appli de streaming musical perso. Trois étapes, deux minutes, zéro App&nbsp;Store — et le PC ne sert qu'une seule fois.</p>
   </header>
 
   <main>
@@ -260,9 +260,9 @@
       <div class="step">
         <span class="step-num">1</span>
         <div class="step-body">
-          <h2>Installe AltStore Classic</h2>
-          <p>C'est ce qui te permet d'installer des apps en dehors de l'App Store, signées avec ton propre Apple ID.</p>
-          <a class="step-link" href="https://faq.altstore.io/getting-started/installing-altstore" target="_blank" rel="noopener">Voir comment l'installer →</a>
+          <h2>Installe SideStore</h2>
+          <p>SideStore te permet d'installer des apps hors App Store — et contrairement à AltStore, il renouvelle la signature tout seul, sans garder un PC branché. Le PC n'est nécessaire qu'une seule fois pour l'installation initiale.</p>
+          <a class="step-link" href="https://sidestore.io/#get-started" target="_blank" rel="noopener">Voir comment l'installer →</a>
         </div>
       </div>
 
@@ -270,7 +270,7 @@
         <span class="step-num">2</span>
         <div class="step-body">
           <h2>Ajoute ma source</h2>
-          <p>Un tap relie ton AltStore à mon petit catalogue perso, où vit Mkzik.</p>
+          <p>Un tap relie ton SideStore à mon petit catalogue perso, où vit Mkzik.</p>
         </div>
       </div>
 
@@ -278,12 +278,12 @@
         <span class="step-num">3</span>
         <div class="step-body">
           <h2>Installe Mkzik</h2>
-          <p>L'app apparaît dans AltStore, prête à lancer sur ton iPhone.</p>
+          <p>L'app apparaît dans SideStore, prête à lancer sur ton iPhone — et elle se re-signe automatiquement en arrière-plan.</p>
         </div>
       </div>
     </div>
 
-    <a class="cta" id="addSourceBtn" href="altstore://source?url=https://ZeWills987.github.io/mkzik_app/altstore-source.json">Ajouter à AltStore</a>
+    <a class="cta" id="addSourceBtn" href="sidestore://source?url=https://ZeWills987.github.io/mkzik_app/altstore-source.json">Ajouter à SideStore</a>
     <button class="secondary" id="copyBtn">Copier le lien de la source</button>
 
     <!-- ── Android ────────────────────────────────────────────────── -->
@@ -297,7 +297,7 @@
   </main>
 
   <footer>
-    <p>L'app se re-signe automatiquement tous les 7 jours. Si elle arrête de fonctionner un matin, rouvre simplement AltStore pour la relancer.</p>
+    <p>SideStore renouvelle la signature automatiquement en arrière-plan — pas besoin de garder un PC branché ni de rouvrir quoi que ce soit.</p>
     <p class="signature">Fait à Bordeaux, avec un peu d'identité marquisienne dedans</p>
   </footer>
 
@@ -308,7 +308,7 @@
 </div>
 
 <script>
-  // Même URL que dans le bouton "Ajouter à AltStore" ci-dessus
+  // URL de la source — copiée telle quelle (SideStore la lit en HTTPS)
   const SOURCE_URL = "https://ZeWills987.github.io/mkzik_app/altstore-source.json";
 
   const copyBtn = document.getElementById("copyBtn");
