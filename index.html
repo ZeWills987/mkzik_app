@@ -283,8 +283,7 @@
       </div>
     </div>
 
-    <!-- ⚠️ Remplace SOURCE_URL par l'URL publique de ton fichier altstore-source.json -->
-    <a class="cta" id="addSourceBtn" href="altstore://source?url=SOURCE_URL">Ajouter à AltStore</a>
+    <a class="cta" id="addSourceBtn" href="altstore://source?url=https://ZeWills987.github.io/mkzik_app/altstore-source.json">Ajouter à AltStore</a>
     <button class="secondary" id="copyBtn">Copier le lien de la source</button>
 
     <!-- ── Android ────────────────────────────────────────────────── -->
@@ -292,9 +291,7 @@
 
     <div class="android">
       <p>Pas besoin d'AltStore — installe l'app directement.</p>
-      <!-- ⚠️ Remplace APK_URL par l'URL de l'APK
-           (release GitHub : .../releases/download/android-latest/app-release.apk) -->
-      <a class="cta" id="apkBtn" href="APK_URL" download>Télécharger l'APK Android</a>
+      <a class="cta" id="apkBtn" href="https://github.com/ZeWills987/mkzik_app/releases/download/android-latest/app-release.apk" download>Télécharger l'APK Android</a>
       <p class="hint">Si Android le demande, autorise « installer des apps de cette source ».</p>
     </div>
   </main>
@@ -311,8 +308,8 @@
 </div>
 
 <script>
-  // ⚠️ Même URL que dans le bouton "Ajouter à AltStore" ci-dessus
-  const SOURCE_URL = "SOURCE_URL";
+  // Même URL que dans le bouton "Ajouter à AltStore" ci-dessus
+  const SOURCE_URL = "https://ZeWills987.github.io/mkzik_app/altstore-source.json";
 
   const copyBtn = document.getElementById("copyBtn");
   copyBtn.addEventListener("click", async () => {
