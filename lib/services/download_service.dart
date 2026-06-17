@@ -1,0 +1,91 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import '../config/api_config.dart';
+import '../models/track.dart';
+
+/// Import d'un track externe non intégré via le service Python (équivaut au
+/// hook React `useDownload`) :
+///   1. POST {python}download {url, token} → { download_id }
+///   2. SSE  {python}download/{id}/stream → events progress / completed / error
+///   3. l'event `completed` renvoie le track désormais intégré (jouable).
+class DownloadService {
+  /// Lance l'import et attend la fin. Renvoie le track intégré, ou null si échec.
+  /// [onStatus] suit la progression ('extracting', 'uploading'…).
+  /// [onError] remonte le message d'erreur éventuel.
+  static Future<Track?> importAndWait(
+    Track track, {
+    void Function(String status)? onStatus,
+    void Function(String message)? onError,
+  }) async {
+    try {
+      // 1) Démarrage du téléchargement
+      final startUri = Uri.parse('${ApiConfig.pythonUrl}download');
+      debugPrint('Mkzik ⬇ download start → $startUri  (url=${track.pageUrl})');
+      final startRes = await http
+          .post(startUri,
+              headers: const {'Content-Type': 'application/json'},
+              body: jsonEncode({'url': track.pageUrl, 'token': ApiConfig.token}))
+          .timeout(const Duration(seconds: 15));
+
+      if (startRes.statusCode != 200) {
+        debugPrint('Mkzik ⬇ download refusé (${startRes.statusCode}) : ${startRes.body}');
+        onError?.call('Serveur indisponible (${startRes.statusCode})');
+        return null;
+      }
+      final downloadId = (jsonDecode(startRes.body) as Map)['download_id'];
+      debugPrint('Mkzik ⬇ download_id = $downloadId');
+      if (downloadId == null) {
+        onError?.call('Réponse invalide du serveur');
+        return null;
+      }
+
+      onStatus?.call('downloading');
+
+      // 2) Écoute du flux SSE
+      final streamUri = Uri.parse('${ApiConfig.pythonUrl}download/$downloadId/stream');
+      final request = http.Request('GET', streamUri)
+        ..headers['Accept'] = 'text/event-stream';
+      final client = http.Client();
+      final response = await client.send(request);
+
+      String event = 'message';
+      try {
+        await for (final line in response.stream
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())) {
+          if (line.startsWith('event:')) {
+            event = line.substring(6).trim();
+          } else if (line.startsWith('data:')) {
+            final raw = line.substring(5).trim();
+            if (raw.isEmpty) continue;
+            final data = jsonDecode(raw);
+
+            if (event == 'completed') {
+              final t = data['track'];
+              debugPrint('Mkzik ⬇ import terminé ✓ (track ${t is Map ? t['title'] : '?'})');
+              if (t is Map<String, dynamic>) return Track.fromJson(t);
+              return null;
+            } else if (event == 'error') {
+              debugPrint('Mkzik ⬇ erreur import : $data');
+              onError?.call((data['message'] ?? 'Échec de l\'import').toString());
+              return null;
+            } else if (event == 'progress') {
+              debugPrint('Mkzik ⬇ progress → ${data['status']}');
+              onStatus?.call((data['status'] ?? 'downloading').toString());
+            }
+          }
+        }
+      } finally {
+        client.close();
+      }
+      onError?.call('Délai dépassé');
+      return null;
+    } catch (e) {
+      debugPrint('Mkzik ⬇ exception import : $e');
+      onError?.call('Connexion impossible');
+      return null;
+    }
+  }
+}
