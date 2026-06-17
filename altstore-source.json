@@ -7,7 +7,7 @@
   "apps": [
     {
       "name": "Mkzik",
-      "bundleIdentifier": "com.example.mkzikApp",
+      "bundleIdentifier": "fr.mkzik.app",
       "developerName": "William Tchang",
       "subtitle": "Streaming musical, identité polynésienne",
       "localizedDescription": "Mkzik est une plateforme de streaming musical personnelle avec une identité visuelle polynésienne (motifs Patutiki marquisiens).",

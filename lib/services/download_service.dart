@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/track.dart';
+import '../utils/logger.dart';
 
 /// Import d'un track externe non intégré via le service Python (équivaut au
 /// hook React `useDownload`) :
@@ -22,7 +22,7 @@ class DownloadService {
     try {
       // 1) Démarrage du téléchargement
       final startUri = Uri.parse('${ApiConfig.pythonUrl}download');
-      debugPrint('Mkzik ⬇ download start → $startUri  (url=${track.pageUrl})');
+      mkLog('Mkzik ⬇ download start → $startUri  (url=${track.pageUrl})');
       final startRes = await http
           .post(startUri,
               headers: const {'Content-Type': 'application/json'},
@@ -30,12 +30,12 @@ class DownloadService {
           .timeout(const Duration(seconds: 15));
 
       if (startRes.statusCode != 200) {
-        debugPrint('Mkzik ⬇ download refusé (${startRes.statusCode}) : ${startRes.body}');
+        mkLog('Mkzik ⬇ download refusé (${startRes.statusCode}) : ${startRes.body}');
         onError?.call('Serveur indisponible (${startRes.statusCode})');
         return null;
       }
       final downloadId = (jsonDecode(startRes.body) as Map)['download_id'];
-      debugPrint('Mkzik ⬇ download_id = $downloadId');
+      mkLog('Mkzik ⬇ download_id = $downloadId');
       if (downloadId == null) {
         onError?.call('Réponse invalide du serveur');
         return null;
@@ -64,15 +64,15 @@ class DownloadService {
 
             if (event == 'completed') {
               final t = data['track'];
-              debugPrint('Mkzik ⬇ import terminé ✓ (track ${t is Map ? t['title'] : '?'})');
+              mkLog('Mkzik ⬇ import terminé ✓ (track ${t is Map ? t['title'] : '?'})');
               if (t is Map<String, dynamic>) return Track.fromJson(t);
               return null;
             } else if (event == 'error') {
-              debugPrint('Mkzik ⬇ erreur import : $data');
+              mkLog('Mkzik ⬇ erreur import : $data');
               onError?.call((data['message'] ?? 'Échec de l\'import').toString());
               return null;
             } else if (event == 'progress') {
-              debugPrint('Mkzik ⬇ progress → ${data['status']}');
+              mkLog('Mkzik ⬇ progress → ${data['status']}');
               onStatus?.call((data['status'] ?? 'downloading').toString());
             }
           }
@@ -83,7 +83,7 @@ class DownloadService {
       onError?.call('Délai dépassé');
       return null;
     } catch (e) {
-      debugPrint('Mkzik ⬇ exception import : $e');
+      mkLog('Mkzik ⬇ exception import : $e');
       onError?.call('Connexion impossible');
       return null;
     }

@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/track.dart';
 import '../models/search_user.dart';
 import 'api_client.dart';
+import '../utils/logger.dart';
 
 /// Événement émis par le flux SSE de recherche externe (`/search/stream`).
 class ExternalSearchEvent {
@@ -38,12 +38,12 @@ class TrackService {
   /// `GET {PYTHON}search/stream?query=` → events `ytm` / `sc` / `error` / `done`.
   static Stream<ExternalSearchEvent> searchExternalStream(String query) async* {
     final uri = Uri.parse('${ApiConfig.pythonUrl}search/stream?query=${Uri.encodeQueryComponent(query)}');
-    debugPrint('Mkzik 🔎 SSE connect → $uri');
+    mkLog('Mkzik 🔎 SSE connect → $uri');
     final request = http.Request('GET', uri)..headers['Accept'] = 'text/event-stream';
     final client = http.Client();
     try {
       final response = await client.send(request);
-      debugPrint('Mkzik 🔎 SSE status ${response.statusCode}');
+      mkLog('Mkzik 🔎 SSE status ${response.statusCode}');
       if (response.statusCode != 200) {
         yield ExternalSearchEvent(error: 'HTTP ${response.statusCode}', done: true);
         return;
@@ -58,23 +58,23 @@ class TrackService {
           final data = jsonDecode(raw);
           if (event == 'ytm' || event == 'sc') {
             final tracks = _tracksFrom(data, forceSource: event);
-            debugPrint('Mkzik 🔎 SSE $event → ${tracks.length} titres');
+            mkLog('Mkzik 🔎 SSE $event → ${tracks.length} titres');
             yield ExternalSearchEvent(source: event, tracks: tracks);
           } else if (event == 'error') {
-            debugPrint('Mkzik 🔎 SSE error → $data');
+            mkLog('Mkzik 🔎 SSE error → $data');
             yield ExternalSearchEvent(
               source: (data['source'] ?? '').toString(),
               error: (data['message'] ?? 'Erreur').toString(),
             );
           } else if (event == 'done') {
-            debugPrint('Mkzik 🔎 SSE done');
+            mkLog('Mkzik 🔎 SSE done');
             yield const ExternalSearchEvent(done: true);
             return;
           }
         }
       }
     } catch (e) {
-      debugPrint('Mkzik 🔎 SSE exception → $e');
+      mkLog('Mkzik 🔎 SSE exception → $e');
       yield ExternalSearchEvent(error: '$e', done: true);
     } finally {
       client.close();

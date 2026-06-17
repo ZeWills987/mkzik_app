@@ -1,4 +1,4 @@
-package com.example.mkzik_app
+package fr.mkzik.app
 
 import com.ryanheise.audioservice.AudioServiceActivity
 
