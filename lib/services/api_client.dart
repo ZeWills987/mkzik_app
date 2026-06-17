@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
+import '../utils/logger.dart';
 
 /// Résultat typé d'un appel API : succès (données) ou échec (message).
 /// Remplace les `catch (_) => null/[]` qui avalaient les erreurs.
@@ -111,6 +111,6 @@ class ApiClient {
   }
 
   static void _log(String method, Uri uri, Object info) {
-    debugPrint('Mkzik API ✕ $method ${uri.path} : $info');
+    mkLog('Mkzik API ✕ $method ${uri.path} : $info');
   }
 }

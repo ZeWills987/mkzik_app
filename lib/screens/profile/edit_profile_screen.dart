@@ -127,6 +127,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         ref.read(authProvider.notifier).updateUsername(_username.text.trim());
       }
       ref.invalidate(profileProvider(widget.username));
+      // applyNewToken ci-dessus est asynchrone → re-vérifier que le widget
+      // est toujours monté avant de toucher au context (lint async-gap).
+      if (!mounted) return;
       Navigator.of(context).maybePop();
     }
   }

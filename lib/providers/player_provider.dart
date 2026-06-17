@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -7,6 +6,7 @@ import '../models/track.dart';
 import '../services/track_service.dart';
 import 'import_provider.dart';
 import 'favourites_provider.dart';
+import '../utils/logger.dart';
 
 // Mode de répétition cyclique : aucune → toute la file → un seul titre
 enum RepeatMode { off, all, one }
@@ -155,7 +155,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (token != _playToken) return; // un autre titre a été lancé entre-temps
 
     if (playable == null || playable.audioUrl.isEmpty) {
-      debugPrint('Mkzik ▶ aucune URL audio jouable pour "${track.title}"');
+      mkLog('Mkzik ▶ aucune URL audio jouable pour "${track.title}"');
       state = state.copyWith(isPlaying: false);
       return;
     }
@@ -199,7 +199,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         TrackService.recordPlay(playable.apiId!);
       }
     } catch (e) {
-      debugPrint('Mkzik ▶ erreur lecture "${track.title}" : $e');
+      mkLog('Mkzik ▶ erreur lecture "${track.title}" : $e');
       if (token == _playToken) state = state.copyWith(isPlaying: false);
     }
   }
