@@ -11,9 +11,10 @@
         android:label="Mkzik"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true">
-        <!-- usesCleartextTraffic: autorise le HTTP (non chiffré) en dev local.
-             À retirer / restreindre via network_security_config en production. -->
+        android:networkSecurityConfig="@xml/network_security_config">
+        <!-- HTTPS strict en release (conforme Play Store). Le HTTP en clair n'est
+             autorisé qu'en build debug — voir res/xml (main = strict) et
+             src/debug/res/xml (override cleartext pour le dev local). -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

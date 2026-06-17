@@ -1,6 +1,6 @@
 # Plateforme iOS minimale du projet (alignée sur IPHONEOS_DEPLOYMENT_TARGET)
-# iOS 26 = famille d'appareils iOS 26/27, borne basse iPhone 11.
-platform :ios, '26.0'
+# iOS 15 : couvre iPhone 6s et plus (~99% des appareils actifs).
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -41,10 +41,10 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
-    # Force tous les pods sur iOS 26 minimum (évite les warnings/échecs si un pod
+    # Force tous les pods sur iOS 15 minimum (évite les warnings/échecs si un pod
     # déclare une cible plus basse que celle du projet).
     target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '26.0'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
     end
   end
 end
