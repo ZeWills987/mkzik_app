@@ -18,6 +18,18 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
+      # .env est déclaré comme asset mais pas committé (secret/local).
+      # On le recrée depuis le secret ENV_FILE, sinon vide (URLs par défaut).
+      - name: Préparer le fichier .env
+        env:
+          ENV_FILE: ${{ secrets.MOBILE_ENV_FILE }}
+        run: |
+          if [ -n "$ENV_FILE" ]; then
+            printf '%s' "$ENV_FILE" > .env
+          else
+            touch .env
+          fi
+
       - name: Installer Java 17
         uses: actions/setup-java@v4
         with:

@@ -22,6 +22,18 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
+      # .env est déclaré comme asset mais pas committé (secret/local).
+      # On le recrée depuis le secret ENV_FILE, sinon vide (URLs par défaut).
+      - name: Préparer le fichier .env
+        env:
+          ENV_FILE: ${{ secrets.MOBILE_ENV_FILE }}
+        run: |
+          if [ -n "$ENV_FILE" ]; then
+            printf '%s' "$ENV_FILE" > .env
+          else
+            touch .env
+          fi
+
       # iOS 26 exige le SDK Xcode 26. latest-stable = le plus récent du runner.
       - name: Sélectionner Xcode
         uses: maxim-lobanov/setup-xcode@v1
