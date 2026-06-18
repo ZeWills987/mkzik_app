@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/player_provider.dart';
 import '../../widgets/mini_player.dart';
-import '../../widgets/import_banner.dart';
+import '../../widgets/notice_banner.dart';
 import '../../theme/app_theme.dart';
 import '../home/home_screen.dart';
 import '../search/search_screen.dart';
@@ -35,8 +35,8 @@ class AppShell extends ConsumerWidget {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Notifications d'import externe (au-dessus du mini-player)
-          const ImportBanner(),
+          // Notifications (imports + confirmations) au-dessus du mini-player
+          const BottomBanners(),
           if (hasTrack) const MiniPlayer(),
           _MkzikNavBar(
             currentIndex: currentIndex,

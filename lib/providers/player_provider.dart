@@ -1,14 +1,18 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:audio_session/audio_session.dart';
 import '../models/track.dart';
 import '../services/track_service.dart';
+import '../utils/media.dart';
 import 'import_provider.dart';
 import 'favourites_provider.dart';
 import '../utils/logger.dart';
 
-// Mode de répétition cyclique : aucune → toute la file → un seul titre
+// Mode de répétition. `off` est conservé pour compat mais n'est plus utilisé :
+// on tourne toujours en boucle de file (all) ↔ répétition d'un titre (one), ce
+// qui garde les boutons prev/next stables et cycliques dans la notification.
 enum RepeatMode { off, all, one }
 
 // État immuable du player
@@ -28,7 +32,7 @@ class PlayerState {
     this.isPlaying = false,
     this.isLiked = false,
     this.isShuffle = false,
-    this.repeatMode = RepeatMode.off,
+    this.repeatMode = RepeatMode.all,
     this.queue = const [],
     this.currentIndex = 0,
     this.position = Duration.zero,
@@ -85,6 +89,15 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   // Jeton anti-concurrence : invalide les chargements obsolètes (taps rapides)
   int _playToken = 0;
 
+  // Playlist native ExoPlayer/AVPlayer : sa séquence reflète la file Dart, ce
+  // qui fait fonctionner prev/next nativement (notification + écran verrouillé).
+  ConcatenatingAudioSource? _playlist;
+  // Titres réellement présents dans _playlist (sous-ensemble jouable de la file :
+  // les externes non importés en sont exclus). Parallèle aux enfants de _playlist.
+  List<Track> _playerTracks = [];
+  // Dernier id ayant déclenché un recordPlay (évite les doublons à chaque resync).
+  String? _lastRecordedId;
+
   PlayerNotifier(this._ref) : super(const PlayerState()) {
     _initAudioSession();
 
@@ -98,14 +111,17 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       if (dur != null) state = state.copyWith(duration: dur);
     });
 
-    // Passage automatique en fin de titre (selon le mode répétition)
+    // Changement d'index (auto-avance, prev/next notif, fin de titre) → resync
+    // de l'état Dart sur le titre réellement joué par le moteur natif.
+    _audio.currentIndexStream.listen(_onCurrentIndexChanged);
+
+    // Sync isPlaying avec l'état réel du player
     _audio.playerStateStream.listen((ps) {
-      if (ps.processingState == ProcessingState.completed) {
-        _onTrackCompleted();
-      }
-      // Sync isPlaying avec l'état réel du player
       state = state.copyWith(isPlaying: ps.playing);
     });
+
+    // Boucle de file par défaut → prev/next cycliques et stables dans la notif.
+    _audio.setLoopMode(LoopMode.all);
   }
 
   // Configure la session audio (catégorie musique) — requis pour une lecture
@@ -119,89 +135,145 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
-  // Gère la fin d'un titre selon RepeatMode
-  Future<void> _onTrackCompleted() async {
-    if (state.repeatMode == RepeatMode.one) {
-      await _audio.seek(Duration.zero);
-      await _audio.play();
-      return;
-    }
-    if (state.hasNext) {
-      await next();
-    } else if (state.repeatMode == RepeatMode.all && state.queue.isNotEmpty) {
-      // Reboucle au premier titre de la file
-      await playTrack(state.queue.first, queue: state.queue);
+  // Traduit notre RepeatMode vers le LoopMode natif de just_audio.
+  LoopMode _loopFor(RepeatMode m) => switch (m) {
+        RepeatMode.off => LoopMode.off,
+        RepeatMode.all => LoopMode.all,
+        RepeatMode.one => LoopMode.one,
+      };
+
+  // Construit une source audio taguée (alimente la notification / lockscreen).
+  // La pochette est nettoyée (mediaUrl) → URL propre haute résolution : le système
+  // l'affiche en grand et en extrait les couleurs pour teinter la notif (cf. Spotify).
+  AudioSource _audioSourceFor(Track t) {
+    final cover = mediaUrl(t.coverUrl);
+    return AudioSource.uri(
+      Uri.parse(t.audioUrl),
+      tag: MediaItem(
+        id: t.id,
+        title: t.title,
+        artist: t.artist,
+        duration: t.duration > Duration.zero ? t.duration : null,
+        artUri: cover.isNotEmpty ? Uri.tryParse(cover) : null,
+      ),
+    );
+  }
+
+  // Resync quand le moteur change d'index (y compris via les boutons de la notif).
+  void _onCurrentIndexChanged(int? i) {
+    if (i == null || i < 0 || i >= _playerTracks.length) return;
+    final t = _playerTracks[i];
+    // Même titre (l'index a juste été décalé par une insertion d'hydratation) →
+    // on ne remet pas la position à 0 et on ne ré-enregistre pas l'écoute.
+    final sameTrack = t.id == state.currentTrack?.id;
+    final qIdx = state.queue.indexWhere((x) => x.id == t.id);
+    state = state.copyWith(
+      currentTrack: t,
+      currentIndex: qIdx < 0 ? state.currentIndex : qIdx,
+      isLiked: t.isFavoris,
+      position: sameTrack ? state.position : Duration.zero,
+    );
+    // Enregistre l'écoute une fois par titre réellement atteint
+    if (!sameTrack && t.apiId != null && t.id != _lastRecordedId) {
+      _lastRecordedId = t.id;
+      TrackService.recordPlay(t.apiId!);
     }
   }
 
   Future<void> playTrack(Track track, {List<Track>? queue}) async {
     final q = [...(queue ?? [track])];
-    final idx = q.indexOf(track);
+    var selIdx = q.indexWhere((t) => t.id == track.id);
+    if (selIdx < 0) {
+      q.insert(0, track);
+      selIdx = 0;
+    }
     final token = ++_playToken;
 
     // Affichage immédiat du titre demandé (avant import/résolution)
     state = state.copyWith(
       currentTrack: track,
       queue: q,
-      currentIndex: idx < 0 ? 0 : idx,
+      currentIndex: selIdx,
       isPlaying: true,
       isLiked: track.isFavoris,
       position: Duration.zero,
       duration: track.duration,
     );
 
-    // Reproduit handleClicTrack : import si externe → URL signée → lecture
-    final playable = await _resolvePlayable(track);
-    if (token != _playToken) return; // un autre titre a été lancé entre-temps
+    // Résout le titre sélectionné (import si externe → URL signée)
+    final current = await _resolvePlayable(track);
+    if (token != _playToken) return;
 
-    if (playable == null || playable.audioUrl.isEmpty) {
+    if (current == null || current.audioUrl.isEmpty) {
       mkLog('Mkzik ▶ aucune URL audio jouable pour "${track.title}"');
       state = state.copyWith(isPlaying: false);
       return;
     }
 
-    // Si l'import a transformé le track (externe → intégré), on met à jour
-    // l'entrée correspondante dans la file et le currentTrack.
-    if (!identical(playable, track)) {
-      final newQueue = [...state.queue];
-      final at = newQueue.indexOf(track);
-      if (at >= 0) {
-        newQueue[at] = playable;
-      } else {
-        newQueue.add(playable);
-      }
-      state = state.copyWith(
-        currentTrack: playable,
-        queue: newQueue,
-        currentIndex: newQueue.indexOf(playable),
-        duration: playable.duration,
-      );
+    // Si l'import a transformé le track (externe → intégré), on met à jour la file
+    if (current.id != track.id || !identical(current, track)) {
+      q[selIdx] = current;
+      state = state.copyWith(queue: q, currentTrack: current, duration: current.duration);
     }
 
+    // Démarrage IMMÉDIAT avec une playlist d'un seul titre (le titre cliqué) →
+    // pas d'attente de la signature du reste de la file. Le reste est hydraté
+    // en arrière-plan (cf. _hydrateQueue) sans couper la lecture.
     try {
-      // Tag MediaItem → alimente la notification / l'écran verrouillé
-      final source = AudioSource.uri(
-        Uri.parse(playable.audioUrl),
-        tag: MediaItem(
-          id: playable.id,
-          title: playable.title,
-          artist: playable.artist,
-          duration: playable.duration > Duration.zero ? playable.duration : null,
-          artUri: playable.hasCover ? Uri.tryParse(playable.coverUrl) : null,
-        ),
-      );
-      // setAudioSource laisse le moteur (ExoPlayer/AVPlayer) détecter le format .m4a
-      await _audio.setAudioSource(source);
+      _playerTracks = [current];
+      _playlist = ConcatenatingAudioSource(children: [_audioSourceFor(current)]);
+      _lastRecordedId = null; // autorise le recordPlay du nouveau titre courant
+      await _audio.setAudioSource(_playlist!, initialIndex: 0, initialPosition: Duration.zero);
       if (token != _playToken) return;
+      await _audio.setLoopMode(_loopFor(state.repeatMode));
+      await _audio.setShuffleModeEnabled(state.isShuffle);
       await _audio.play();
-      // Enregistre l'écoute pour l'historique de l'utilisateur (cf. React)
-      if (playable.apiId != null) {
-        TrackService.recordPlay(playable.apiId!);
-      }
     } catch (e) {
       mkLog('Mkzik ▶ erreur lecture "${track.title}" : $e');
       if (token == _playToken) state = state.copyWith(isPlaying: false);
+      return;
     }
+
+    // Hydrate le reste de la file en arrière-plan (signe + insère autour du
+    // titre courant). Non attendu → la lecture a déjà démarré.
+    unawaited(_hydrateQueue(q, selIdx, current, token));
+  }
+
+  /// Résout (signe) les autres titres de la file et les insère autour du titre
+  /// courant dans la playlist native, sans interrompre la lecture en cours.
+  Future<void> _hydrateQueue(List<Track> q, int selIdx, Track current, int token) async {
+    if (q.length < 2) return;
+    final resolved = await Future.wait([
+      for (var i = 0; i < q.length; i++)
+        i == selIdx ? Future.value(current) : _resolveForQueue(q[i]),
+    ]);
+    if (token != _playToken || _playlist == null) return;
+
+    // Sépare les titres jouables avant / après le titre courant
+    final before = <Track>[];
+    final beforeSources = <AudioSource>[];
+    for (var i = 0; i < selIdx; i++) {
+      final rt = resolved[i];
+      if (rt == null || rt.audioUrl.isEmpty) continue;
+      before.add(rt);
+      beforeSources.add(_audioSourceFor(rt));
+    }
+    final after = <Track>[];
+    final afterSources = <AudioSource>[];
+    for (var i = selIdx + 1; i < q.length; i++) {
+      final rt = resolved[i];
+      if (rt == null || rt.audioUrl.isEmpty) continue;
+      after.add(rt);
+      afterSources.add(_audioSourceFor(rt));
+    }
+    if (before.isEmpty && after.isEmpty) return;
+
+    // Met à jour la table AVANT les insertions pour que _onCurrentIndexChanged
+    // mappe correctement le nouvel index du titre courant.
+    _playerTracks = [...before, current, ...after];
+    // Insère les "avant" en tête (décale l'index courant), puis les "après".
+    if (before.isNotEmpty) await _playlist!.insertAll(0, beforeSources);
+    if (after.isNotEmpty) await _playlist!.addAll(afterSources);
   }
 
   /// Rend un track réellement jouable (cf. React `handleClicTrack`) :
@@ -228,6 +300,18 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     return t.audioUrl.isNotEmpty ? t : null;
   }
 
+  /// Résolution légère pour les autres titres de la file (préchargement) : signe
+  /// l'URL des internes mais n'importe PAS les externes. Renvoie null pour les
+  /// titres non jouables sans import → ils sont exclus de la playlist native.
+  Future<Track?> _resolveForQueue(Track t) async {
+    if (t.hasPlayableUrl) return t;
+    if (!t.needsImport && t.apiId != null) {
+      final signed = await TrackService.getSignedAudioUrl(t.apiId!);
+      if (signed != null && signed.isNotEmpty) return t.copyWith(audioUrl: signed);
+    }
+    return null;
+  }
+
   Future<void> togglePlayPause() async {
     if (_audio.playing) {
       await _audio.pause();
@@ -236,19 +320,25 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
-  // next/previous cycliques (cf. React : index modulo la longueur de la file)
+  // next/previous cycliques, délégués au moteur natif (cohérent avec la notif).
   Future<void> next() async {
-    final n = state.queue.length;
-    if (n == 0) return;
-    final nextIdx = (state.currentIndex + 1) % n;
-    await playTrack(state.queue[nextIdx], queue: state.queue);
+    final n = _playerTracks.length;
+    if (n < 2) return;
+    if (_audio.hasNext) {
+      await _audio.seekToNext();
+    } else {
+      await _audio.seek(Duration.zero, index: 0); // reboucle au début
+    }
   }
 
   Future<void> previous() async {
-    final n = state.queue.length;
-    if (n == 0) return;
-    final prevIdx = state.currentIndex == 0 ? n - 1 : state.currentIndex - 1;
-    await playTrack(state.queue[prevIdx], queue: state.queue);
+    final n = _playerTracks.length;
+    if (n < 2) return;
+    if (_audio.hasPrevious) {
+      await _audio.seekToPrevious();
+    } else {
+      await _audio.seek(Duration.zero, index: n - 1); // reboucle à la fin
+    }
   }
 
   Future<void> seekTo(Duration position) async {
@@ -293,23 +383,46 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     var idx = state.currentIndex;
     if (insertAt <= idx) idx += 1;
     state = state.copyWith(queue: list, currentIndex: idx);
+
+    // Reflète l'ajout dans la playlist native si le titre est jouable sans import
+    if (_playlist != null && t.audioUrl.isNotEmpty && !t.needsImport) {
+      final playerInsert = playNext
+          ? ((_audio.currentIndex ?? 0) + 1).clamp(0, _playerTracks.length)
+          : _playerTracks.length;
+      _playerTracks.insert(playerInsert, t);
+      await _playlist!.insert(playerInsert, _audioSourceFor(t));
+    }
   }
 
   /// Saute directement à un titre de la file (tap dans la current list).
   Future<void> jumpTo(int index) async {
     if (index < 0 || index >= state.queue.length) return;
     if (index == state.currentIndex) return;
-    await playTrack(state.queue[index], queue: state.queue);
+    final t = state.queue[index];
+    final pIdx = _playerTracks.indexWhere((x) => x.id == t.id);
+    if (pIdx >= 0) {
+      await _audio.seek(Duration.zero, index: pIdx); // titre déjà dans la playlist
+    } else {
+      await playTrack(t, queue: state.queue); // externe/non résolu → résout + recharge
+    }
   }
 
   /// Retire un titre de la file. Le titre en cours n'est pas supprimable.
   void removeAt(int index) {
     if (index < 0 || index >= state.queue.length) return;
     if (index == state.currentIndex) return; // on ne retire pas le titre joué
+    final removed = state.queue[index];
     final list = [...state.queue]..removeAt(index);
     var idx = state.currentIndex;
     if (index < idx) idx -= 1; // décalage si on retire avant le courant
     state = state.copyWith(queue: list, currentIndex: idx);
+
+    // Reflète la suppression dans la playlist native
+    final pIdx = _playerTracks.indexWhere((x) => x.id == removed.id);
+    if (pIdx >= 0 && _playlist != null) {
+      _playerTracks.removeAt(pIdx);
+      _playlist!.removeAt(pIdx);
+    }
   }
 
   /// Réordonne la file (drag & drop) en gardant le titre courant synchronisé.
@@ -319,25 +432,33 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // Convention ReorderableListView : ajuster newIndex si on descend l'élément
     if (newIndex > oldIndex) newIndex -= 1;
     if (newIndex < 0 || newIndex >= list.length) return;
+    final mirrors = _playlist != null && _playerTracks.length == list.length;
     final item = list.removeAt(oldIndex);
     list.insert(newIndex, item);
     // Recalcule l'index courant via l'id du titre joué
     final curId = state.currentTrack?.id;
     final newCur = curId == null ? state.currentIndex : list.indexWhere((t) => t.id == curId);
     state = state.copyWith(queue: list, currentIndex: newCur < 0 ? state.currentIndex : newCur);
+
+    // Applique le même déplacement à la playlist native (si elle reflète la file 1:1)
+    if (mirrors) {
+      final moved = _playerTracks.removeAt(oldIndex);
+      _playerTracks.insert(newIndex, moved);
+      _playlist!.move(oldIndex, newIndex);
+    }
   }
 
-  void toggleShuffle() {
-    state = state.copyWith(isShuffle: !state.isShuffle);
+  Future<void> toggleShuffle() async {
+    final v = !state.isShuffle;
+    await _audio.setShuffleModeEnabled(v);
+    state = state.copyWith(isShuffle: v);
   }
 
-  // Cycle entre les 3 modes de répétition
-  void cycleRepeat() {
-    final next = switch (state.repeatMode) {
-      RepeatMode.off => RepeatMode.all,
-      RepeatMode.all => RepeatMode.one,
-      RepeatMode.one => RepeatMode.off,
-    };
+  // Bascule entre boucle de file (all) et répétition d'un titre (one).
+  // Pas d'état "off" → prev/next restent cycliques et stables dans la notif.
+  Future<void> cycleRepeat() async {
+    final next = state.repeatMode == RepeatMode.one ? RepeatMode.all : RepeatMode.one;
+    await _audio.setLoopMode(_loopFor(next));
     state = state.copyWith(repeatMode: next);
   }
 

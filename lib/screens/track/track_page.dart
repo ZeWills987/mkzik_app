@@ -6,9 +6,11 @@ import '../../models/track_visuals.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/import_provider.dart';
 import '../../providers/favourites_provider.dart';
+import '../../providers/notice_provider.dart';
 import '../../services/track_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/track_cover.dart';
+import '../../widgets/notice_banner.dart';
 import '../../widgets/mini_player.dart';
 import '../profile/profile_screen.dart';
 
@@ -55,10 +57,6 @@ class _TrackPageState extends ConsumerState<TrackPage> {
     ref.invalidate(favouritesProvider); // la librairie se met à jour
   }
 
-  void _toast(String m) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(m), backgroundColor: kSurface, behavior: SnackBarBehavior.floating),
-      );
-
   @override
   Widget build(BuildContext context) {
     final colors = track.gradientColors;
@@ -68,7 +66,14 @@ class _TrackPageState extends ConsumerState<TrackPage> {
 
     return Scaffold(
       backgroundColor: kBg,
-      bottomNavigationBar: hasTrack ? const SafeArea(top: false, child: MiniPlayer()) : null,
+      // Bannières (import + confirmations) visibles même sur cette page poussée
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [const BottomBanners(), if (hasTrack) const MiniPlayer()],
+        ),
+      ),
       body: Stack(
         children: [
           // Fond dégradé + glow dérivés de la track
@@ -186,37 +191,38 @@ class _TrackPageState extends ConsumerState<TrackPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _ActionCircle(
-                        icon: _liked ? Icons.favorite : Icons.favorite_border,
-                        color: _liked ? accent : Colors.white,
-                        label: 'J\'aime',
-                        onTap: _toggleLike,
-                      ),
+                      // Like indisponible pour un externe non importé (pas sur Mkzik)
+                      if (!track.isExternal)
+                        _ActionCircle(
+                          icon: _liked ? Icons.favorite : Icons.favorite_border,
+                          color: _liked ? accent : Colors.white,
+                          label: 'J\'aime',
+                          onTap: _toggleLike,
+                        ),
                       _ActionCircle(
                         icon: Icons.playlist_add,
                         label: 'File',
                         onTap: () {
                           ref.read(playerProvider.notifier).addToList(track);
-                          _toast('Ajouté à la file');
+                          ref.read(noticeProvider.notifier).show('Ajouté à la file', icon: NoticeIcon.queue);
                         },
                       ),
-                      _ActionCircle(
-                        icon: Icons.ios_share,
-                        label: 'Partager',
-                        onTap: () {
-                          Clipboard.setData(ClipboardData(text: track.pageUrl.isNotEmpty ? track.pageUrl : track.title));
-                          _toast('Lien copié');
-                        },
-                      ),
+                      // Partage indisponible pour un externe non importé
+                      if (!track.isExternal)
+                        _ActionCircle(
+                          icon: Icons.ios_share,
+                          label: 'Partager',
+                          onTap: () {
+                            Clipboard.setData(ClipboardData(text: track.pageUrl.isNotEmpty ? track.pageUrl : track.title));
+                            ref.read(noticeProvider.notifier).show('Lien copié', icon: NoticeIcon.share);
+                          },
+                        ),
                       if (track.isExternal)
                         _ActionCircle(
                           icon: Icons.cloud_upload,
                           label: 'Importer',
                           color: accent,
-                          onTap: () {
-                            ref.read(importProvider.notifier).startAndWait(track);
-                            _toast('Import lancé — suis la progression en bas');
-                          },
+                          onTap: () => ref.read(importProvider.notifier).startAndWait(track),
                         ),
                     ],
                   ),

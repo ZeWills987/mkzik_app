@@ -7,10 +7,12 @@ import '../../models/track_visuals.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/notice_provider.dart';
 import '../../services/profile_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/media.dart';
 import '../../widgets/track_actions.dart';
+import '../../widgets/notice_banner.dart';
 import '../../widgets/mini_player.dart';
 import 'edit_profile_screen.dart';
 
@@ -48,8 +50,16 @@ class ProfileScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: kBg,
-      // En route poussée, l'AppShell est masqué → on remet le mini-player
-      bottomNavigationBar: pushed && hasTrack ? const SafeArea(top: false, child: MiniPlayer()) : null,
+      // En route poussée, l'AppShell est masqué → on remet bannières + mini-player
+      bottomNavigationBar: pushed
+          ? SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [const BottomBanners(), if (hasTrack) const MiniPlayer()],
+              ),
+            )
+          : null,
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator(color: kAccent)),
         error: (err, stack) => const Center(
@@ -245,22 +255,48 @@ class _CircleIcon extends StatelessWidget {
 }
 
 // Bouton Suivre/Suivi avec bascule optimiste + appel API
-class _FollowButton extends StatefulWidget {
+class _FollowButton extends ConsumerStatefulWidget {
   final String username;
   final bool initialFollowing;
   const _FollowButton({required this.username, required this.initialFollowing});
 
   @override
-  State<_FollowButton> createState() => _FollowButtonState();
+  ConsumerState<_FollowButton> createState() => _FollowButtonState();
 }
 
-class _FollowButtonState extends State<_FollowButton> {
+class _FollowButtonState extends ConsumerState<_FollowButton> {
   late bool _following = widget.initialFollowing;
+  bool _busy = false; // évite les double-taps pendant l'appel
+
+  // Resynchronise sur l'état réel quand le profil est rechargé (après succès).
+  @override
+  void didUpdateWidget(_FollowButton old) {
+    super.didUpdateWidget(old);
+    if (!_busy && old.initialFollowing != widget.initialFollowing) {
+      _following = widget.initialFollowing;
+    }
+  }
 
   Future<void> _toggle() async {
-    setState(() => _following = !_following);
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _following = !_following;
+    });
     final ok = await ProfileService.toggleFollow(widget.username);
-    if (!ok && mounted) setState(() => _following = !_following); // rollback si échec
+    if (!mounted) return;
+    setState(() {
+      if (!ok) _following = !_following; // rollback si échec
+      _busy = false;
+    });
+    final notifier = ref.read(noticeProvider.notifier);
+    if (ok) {
+      notifier.show(_following ? 'Abonné à @${widget.username}' : 'Désabonné');
+      // Rafraîchit le profil affiché (compteurs + état de suivi réels)
+      ref.invalidate(profileProvider(widget.username));
+    } else {
+      notifier.show('Action impossible, réessaie');
+    }
   }
 
   @override

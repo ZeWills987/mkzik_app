@@ -6,6 +6,7 @@ import '../models/track_visuals.dart';
 import '../providers/player_provider.dart';
 import '../providers/import_provider.dart';
 import '../providers/favourites_provider.dart';
+import '../providers/notice_provider.dart';
 import '../services/track_service.dart';
 import '../theme/app_theme.dart';
 import '../navigation/app_nav.dart';
@@ -54,6 +55,44 @@ class ExternalBadge extends StatelessWidget {
           style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
     );
   }
+}
+
+// Couleurs de marque des plateformes externes.
+const kYtMusicRed = Color(0xFFFF0000);
+const kSoundcloudOrange = Color(0xFFFF5500);
+
+/// Logo de la plateforme externe (YouTube Music = rond rouge + ▶, SoundCloud = nuage orange).
+class PlatformLogo extends StatelessWidget {
+  final ExtPlatform platform;
+  final double size;
+  const PlatformLogo({super.key, required this.platform, this.size = 18});
+
+  @override
+  Widget build(BuildContext context) {
+    switch (platform) {
+      case ExtPlatform.youtubeMusic:
+        return Container(
+          width: size,
+          height: size,
+          decoration: const BoxDecoration(color: kYtMusicRed, shape: BoxShape.circle),
+          child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: size * 0.72),
+        );
+      case ExtPlatform.soundcloud:
+        return Icon(Icons.cloud, color: kSoundcloudOrange, size: size + 3);
+      case ExtPlatform.other:
+        return const ExternalBadge();
+    }
+  }
+}
+
+/// Badge plateforme d'un track externe (logo seul, déduit de la source).
+class PlatformBadge extends StatelessWidget {
+  final Track track;
+  final double size;
+  const PlatformBadge({super.key, required this.track, this.size = 18});
+
+  @override
+  Widget build(BuildContext context) => PlatformLogo(platform: track.extPlatform, size: size);
 }
 
 /// Ligne de résultat track (style page de recherche) — réutilisable.
@@ -125,7 +164,7 @@ class TrackResultRow extends ConsumerWidget {
                 ],
               ),
             ),
-            if (track.isExternal) const Padding(padding: EdgeInsets.only(right: 6), child: ExternalBadge()),
+            if (track.isExternal) Padding(padding: const EdgeInsets.only(right: 6), child: PlatformBadge(track: track)),
             GestureDetector(
               onTap: onMenu,
               behavior: HitTestBehavior.opaque,
@@ -161,12 +200,12 @@ void showTrackActionsSheet(BuildContext context, WidgetRef ref, Track track) {
       onPlayNext: () {
         Navigator.pop(ctx);
         ref.read(playerProvider.notifier).addToList(track, playNext: true);
-        toast('Jouer ensuite');
+        ref.read(noticeProvider.notifier).show('Sera joué ensuite', icon: NoticeIcon.playNext);
       },
       onAddToList: () {
         Navigator.pop(ctx);
         ref.read(playerProvider.notifier).addToList(track);
-        toast('Ajouté à la liste courante');
+        ref.read(noticeProvider.notifier).show('Ajouté à la liste courante', icon: NoticeIcon.queue);
       },
       onLike: () async {
         Navigator.pop(ctx);
@@ -185,7 +224,7 @@ void showTrackActionsSheet(BuildContext context, WidgetRef ref, Track track) {
       onShare: () {
         Navigator.pop(ctx);
         Clipboard.setData(ClipboardData(text: track.pageUrl.isNotEmpty ? track.pageUrl : track.title));
-        toast('Lien copié');
+        ref.read(noticeProvider.notifier).show('Lien copié', icon: NoticeIcon.share);
       },
       onImport: () {
         Navigator.pop(ctx);
@@ -250,7 +289,7 @@ class _TrackMenuSheet extends StatelessWidget {
                                 maxLines: 1, overflow: TextOverflow.ellipsis),
                           ),
                           if (external) const SizedBox(width: 8),
-                          if (external) const ExternalBadge(),
+                          if (external) PlatformBadge(track: track),
                         ],
                       ),
                     ],
@@ -262,14 +301,17 @@ class _TrackMenuSheet extends StatelessWidget {
           const Divider(height: 1, color: kBorderSoft),
           _MenuItem(icon: Icons.playlist_play, label: 'JOUER ENSUITE', onTap: onPlayNext),
           _MenuItem(icon: Icons.queue_music, label: 'AJOUTER À LA LISTE COURANTE', onTap: onAddToList),
-          _MenuItem(
-            icon: track.isFavoris ? Icons.favorite : Icons.favorite_border,
-            label: track.isFavoris ? 'RETIRER DES FAVORIS' : 'LIKER',
-            accent: track.isFavoris,
-            onTap: onLike,
-          ),
+          // Like indisponible pour un externe non importé (pas encore sur Mkzik)
+          if (!external)
+            _MenuItem(
+              icon: track.isFavoris ? Icons.favorite : Icons.favorite_border,
+              label: track.isFavoris ? 'RETIRER DES FAVORIS' : 'LIKER',
+              accent: track.isFavoris,
+              onTap: onLike,
+            ),
           _MenuItem(icon: Icons.library_add, label: 'AJOUTER À UNE PLAYLIST', onTap: () => onOther('Ajouter à une playlist')),
-          _MenuItem(icon: Icons.ios_share, label: 'PARTAGER', onTap: onShare),
+          // Partage indisponible pour un externe non importé (pas d'URL Mkzik)
+          if (!external) _MenuItem(icon: Icons.ios_share, label: 'PARTAGER', onTap: onShare),
           _MenuItem(icon: Icons.download, label: 'TÉLÉCHARGER HORS LIGNE', onTap: () => onOther('Téléchargement')),
           if (external)
             _MenuItem(icon: Icons.cloud_upload, label: 'IMPORTER SUR MKZIK', accent: true, onTap: onImport),

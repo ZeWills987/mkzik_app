@@ -39,6 +39,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   SearchTab _tab = SearchTab.zik;
   SearchSort _sort = SearchSort.relevance;
+  ExtPlatform? _extPlatform; // filtre plateforme de l'onglet Externe (null = toutes)
 
   @override
   void initState() {
@@ -286,6 +287,33 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             ),
           ),
 
+        // Filtres plateforme (uniquement pour l'onglet Externe)
+        if (_tab == SearchTab.external)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 2, 20, 4),
+            child: Row(
+              children: [
+                _PlatformChip(
+                  label: 'TOUT',
+                  active: _extPlatform == null,
+                  onTap: () => setState(() => _extPlatform = null),
+                ),
+                _PlatformChip(
+                  label: 'YT MUSIC',
+                  platform: ExtPlatform.youtubeMusic,
+                  active: _extPlatform == ExtPlatform.youtubeMusic,
+                  onTap: () => setState(() => _extPlatform = ExtPlatform.youtubeMusic),
+                ),
+                _PlatformChip(
+                  label: 'SOUNDCLOUD',
+                  platform: ExtPlatform.soundcloud,
+                  active: _extPlatform == ExtPlatform.soundcloud,
+                  onTap: () => setState(() => _extPlatform = ExtPlatform.soundcloud),
+                ),
+              ],
+            ),
+          ),
+
         Expanded(child: _buildResultList()),
       ],
     );
@@ -309,8 +337,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         if (_external.isEmpty && _externalError != null) {
           return _ExternalErrorView(message: _externalError!);
         }
+        // Filtre par plateforme (YT Music / SoundCloud) si sélectionné
+        final ext = _extPlatform == null
+            ? _external
+            : _external.where((t) => t.extPlatform == _extPlatform).toList();
         return _trackList(
-          SearchEngine.sortTracks(_external, _sort),
+          SearchEngine.sortTracks(ext, _sort),
           external: true,
           footerLoading: _loadingExternal,
         );
@@ -600,7 +632,11 @@ class _SuggestionRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            _SourceBadge(suggestion.kind),
+            // Externe → logo de la plateforme ; sinon badge ZIK / USER
+            if (suggestion.kind == SearchTab.external && suggestion.track != null)
+              PlatformBadge(track: suggestion.track!)
+            else
+              _SourceBadge(suggestion.kind),
           ],
         ),
       ),
@@ -681,6 +717,43 @@ class _SortChip extends StatelessWidget {
               fontWeight: FontWeight.w700,
               letterSpacing: 0.5,
             )),
+      ),
+    );
+  }
+}
+
+// Chip de filtre plateforme externe (logo + libellé) — onglet Externe
+class _PlatformChip extends StatelessWidget {
+  final String label;
+  final ExtPlatform? platform; // null = "TOUT" (pas de logo)
+  final bool active;
+  final VoidCallback onTap;
+
+  const _PlatformChip({required this.label, this.platform, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 16),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (platform != null) ...[
+              Opacity(opacity: active ? 1 : 0.55, child: PlatformLogo(platform: platform!, size: 15)),
+              const SizedBox(width: 5),
+            ],
+            Text(label,
+                style: TextStyle(
+                  color: active ? kAccent : kTextSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                )),
+          ],
+        ),
       ),
     );
   }
