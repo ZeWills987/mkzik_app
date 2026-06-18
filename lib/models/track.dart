@@ -136,6 +136,25 @@ class Track {
   int get hashCode => id.hashCode;
 }
 
+/// Plateforme externe d'origine d'un titre (recherche YouTube Music / SoundCloud).
+enum ExtPlatform { youtubeMusic, soundcloud, other }
+
+extension TrackExtPlatform on Track {
+  /// Déduit la plateforme externe depuis `source` ('ytm'/'sc') ou `platforms`.
+  ExtPlatform get extPlatform {
+    final s = source.toLowerCase();
+    final p = platforms.map((e) => e.toLowerCase()).join(',');
+    if (s == 'ytm' || s.contains('youtube') || p.contains('youtube')) {
+      return ExtPlatform.youtubeMusic;
+    }
+    if (s == 'sc' || s.contains('soundcloud') || s.contains('sound') ||
+        p.contains('soundcloud') || p.contains('sound')) {
+      return ExtPlatform.soundcloud;
+    }
+    return ExtPlatform.other;
+  }
+}
+
 /// Formate un compteur : 12400 → "12.4k", 1200000 → "1.2M". (Utilitaire pur.)
 String formatCount(int n) {
   if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';

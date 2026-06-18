@@ -1,11 +1,17 @@
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 // On masque RepeatMode de Flutter pour utiliser celui du provider
 import 'package:flutter/material.dart' hide RepeatMode;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/track.dart';
 import '../../models/track_visuals.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/notice_provider.dart';
 import '../../widgets/current_list_sheet.dart';
+import '../../widgets/track_cover.dart';
+import '../../utils/media.dart';
 import '../profile/profile_screen.dart';
 
 /// Player modal plein écran.
@@ -88,6 +94,8 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
     final colors = track.gradientColors;
     final accent = track.accent;
     final accentLight = _lighten(accent, 0.18);
+    final coverUrl = mediaUrl(track.coverUrl);
+    final artSize = (MediaQuery.of(context).size.width * 0.58).clamp(150.0, 300.0);
 
     final screenH = MediaQuery.of(context).size.height;
     final dragT = (_dragOffset / screenH).clamp(0.0, 1.0);
@@ -104,7 +112,43 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          // ── Fond dégradé sombre dérivé du track ──────────────────────────
+          // ── Fond : pochette floutée (style Apple Music) ou dégradé du track ─
+          if (coverUrl.isNotEmpty)
+            Positioned.fill(
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 55, sigmaY: 55, tileMode: TileMode.clamp),
+                child: CachedNetworkImage(
+                  imageUrl: coverUrl,
+                  fit: BoxFit.cover,
+                  errorWidget: (context, url, error) => const ColoredBox(color: Color(0xFF101014)),
+                ),
+              ),
+            )
+          else ...[
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      _darken(colors.length > 1 ? colors[1] : accent, 0.35),
+                      _darken(colors.last, 0.55),
+                      const Color(0xFF050507),
+                    ],
+                    stops: const [0.0, 0.55, 1.0],
+                  ),
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _ScenePainter(scene: track.scene, accent: accent),
+              ),
+            ),
+          ],
+
+          // Scrim sombre vertical → lisibilité du texte et des contrôles
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -112,45 +156,25 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    _darken(colors.length > 1 ? colors[1] : accent, 0.35),
-                    _darken(colors.last, 0.55),
-                    const Color(0xFF050507),
+                    Colors.black.withValues(alpha: 0.28),
+                    Colors.black.withValues(alpha: 0.52),
+                    Colors.black.withValues(alpha: 0.86),
                   ],
-                  stops: const [0.0, 0.55, 1.0],
+                  stops: const [0.0, 0.5, 1.0],
                 ),
               ),
             ),
           ),
 
-          // Glow radial en haut (lumière de l'ambiance)
+          // Halo accent subtil (ambiance du morceau)
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: const Alignment(-0.2, -0.75),
+                  center: const Alignment(-0.1, -0.7),
                   radius: 1.1,
-                  colors: [accent.withValues(alpha: 0.45), Colors.transparent],
+                  colors: [accent.withValues(alpha: 0.30), Colors.transparent],
                   stops: const [0.0, 0.6],
-                ),
-              ),
-            ),
-          ),
-
-          // Motif losange + décor (pyramide / ville / étoiles)
-          Positioned.fill(
-            child: CustomPaint(
-              painter: _ScenePainter(scene: track.scene, accent: accent),
-            ),
-          ),
-
-          // Voile sombre en bas pour la lisibilité des contrôles
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.center,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Colors.black.withValues(alpha: 0.55)],
                 ),
               ),
             ),
@@ -166,26 +190,45 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                   onQueue: () => showCurrentList(context),
                 ),
 
-                const Spacer(),
+                const Spacer(flex: 2),
 
-                // Titre + artiste (alignés à droite, texte dégradé)
+                // Pochette nette (style Apple Music) — cadre verre + ombre portée
+                Container(
+                  width: artSize,
+                  height: artSize,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        blurRadius: 40,
+                        offset: const Offset(0, 22),
+                      ),
+                    ],
+                  ),
+                  child: TrackCover(track: track, size: artSize, radius: 24),
+                ),
+
+                const SizedBox(height: 26),
+
+                // Titre + artiste centrés
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       _GradientText(
                         track.title.toUpperCase(),
-                        colors: [accentLight, _lighten(accent, 0.0), accentLight],
+                        colors: [Colors.white, accentLight, Colors.white],
                         style: const TextStyle(
-                          fontSize: 30,
+                          fontSize: 26,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: 1,
-                          height: 1.05,
+                          letterSpacing: 0.5,
+                          height: 1.1,
                         ),
-                        textAlign: TextAlign.right,
+                        textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
                       // Artiste cliquable → son profil (ferme le modal d'abord)
                       GestureDetector(
                         onTap: track.artist.isEmpty
@@ -196,6 +239,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                               },
                         child: Text(
                           track.artist.toUpperCase(),
+                          textAlign: TextAlign.center,
                           style: TextStyle(
                             color: accentLight,
                             fontSize: 12,
@@ -208,108 +252,102 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                   ),
                 ),
 
-                const SizedBox(height: 26),
+                const Spacer(flex: 3),
 
-                // Barre d'actions : LIKE / LYRICS / SHARE / MORE
-                _ActionsRow(
-                  isLiked: player.isLiked,
-                  likes: track.likesLabel,
-                  accent: accent,
-                  onLike: notifier.toggleLike,
-                ),
-
-                const SizedBox(height: 20),
-
-                // Waveform + temps
+                // ── Panneau "liquid glass" : toutes les commandes ────────────
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(
-                    children: [
-                      _Waveform(
-                        progress: player.progress,
-                        duration: player.duration,
-                        accent: accent,
-                        seed: track.id.hashCode,
-                        onSeek: notifier.seekTo,
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _glassPanel(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+                      child: Column(
                         children: [
-                          Text(player.positionFormatted,
-                              style: const TextStyle(color: Colors.white60, fontSize: 11)),
-                          Text(
-                            player.duration == Duration.zero
-                                ? track.durationFormatted
-                                : player.durationFormatted,
-                            style: const TextStyle(color: Colors.white60, fontSize: 11),
+                          // Barre d'actions : LIKE / LYRICS / SHARE / MORE
+                          _ActionsRow(
+                            isLiked: player.isLiked,
+                            likes: track.likesLabel,
+                            accent: accent,
+                            onLike: notifier.toggleLike,
+                            onShare: () {
+                              Clipboard.setData(ClipboardData(
+                                  text: track.pageUrl.isNotEmpty ? track.pageUrl : track.title));
+                              ref.read(noticeProvider.notifier).show('Lien copié', icon: NoticeIcon.share);
+                            },
+                          ),
+                          const SizedBox(height: 18),
+                          // Waveform + temps
+                          _Waveform(
+                            progress: player.progress,
+                            duration: player.duration,
+                            accent: accentLight,
+                            seed: track.id.hashCode,
+                            onSeek: notifier.seekTo,
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(player.positionFormatted,
+                                  style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                              Text(
+                                player.duration == Duration.zero
+                                    ? track.durationFormatted
+                                    : player.durationFormatted,
+                                style: const TextStyle(color: Colors.white70, fontSize: 11),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          // Shuffle · prev · play · next · repeat
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              GestureDetector(
+                                onTap: notifier.toggleShuffle,
+                                child: Icon(
+                                  Icons.shuffle,
+                                  size: 22,
+                                  color: player.isShuffle ? accentLight : Colors.white54,
+                                ),
+                              ),
+                              const SizedBox(width: 22),
+                              _ControlButton(
+                                icon: Icons.skip_previous,
+                                enabled: player.canSkip,
+                                onTap: notifier.previous,
+                              ),
+                              const SizedBox(width: 20),
+                              _PlayButton(
+                                isPlaying: player.isPlaying,
+                                colors: [accentLight, accent],
+                                onTap: notifier.togglePlayPause,
+                              ),
+                              const SizedBox(width: 20),
+                              _ControlButton(
+                                icon: Icons.skip_next,
+                                enabled: player.canSkip,
+                                onTap: notifier.next,
+                              ),
+                              const SizedBox(width: 22),
+                              GestureDetector(
+                                onTap: notifier.cycleRepeat,
+                                child: Icon(
+                                  player.repeatMode == RepeatMode.one
+                                      ? Icons.repeat_one
+                                      : Icons.repeat,
+                                  size: 22,
+                                  color: accentLight,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
 
-                const SizedBox(height: 14),
-
-                // Contrôles : prev / play / next
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _ControlButton(
-                      icon: Icons.skip_previous,
-                      enabled: player.canSkip,
-                      onTap: notifier.previous,
-                    ),
-                    const SizedBox(width: 28),
-                    _PlayButton(
-                      isPlaying: player.isPlaying,
-                      colors: [accentLight, accent],
-                      onTap: notifier.togglePlayPause,
-                    ),
-                    const SizedBox(width: 28),
-                    _ControlButton(
-                      icon: Icons.skip_next,
-                      enabled: player.canSkip,
-                      onTap: notifier.next,
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 10),
-
-                // Shuffle / Repeat
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      GestureDetector(
-                        onTap: notifier.toggleShuffle,
-                        child: Icon(
-                          Icons.shuffle,
-                          size: 20,
-                          color: player.isShuffle ? accentLight : Colors.white38,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: notifier.cycleRepeat,
-                        child: Icon(
-                          player.repeatMode == RepeatMode.one
-                              ? Icons.repeat_one
-                              : Icons.repeat,
-                          size: 20,
-                          color: player.repeatMode == RepeatMode.off
-                              ? Colors.white38
-                              : accentLight,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const Spacer(),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
               ],
             ),
           ),
@@ -372,12 +410,14 @@ class _ActionsRow extends StatelessWidget {
   final String likes;
   final Color accent;
   final VoidCallback onLike;
+  final VoidCallback onShare;
 
   const _ActionsRow({
     required this.isLiked,
     required this.likes,
     required this.accent,
     required this.onLike,
+    required this.onShare,
   });
 
   @override
@@ -393,7 +433,7 @@ class _ActionsRow extends StatelessWidget {
           onTap: onLike,
         ),
         _ActionItem(icon: Icons.mic_none, label: 'LYRICS', onTap: () {}),
-        _ActionItem(icon: Icons.ios_share, label: 'SHARE', onTap: () {}),
+        _ActionItem(icon: Icons.ios_share, label: 'SHARE', onTap: onShare),
         _ActionItem(icon: Icons.more_horiz, label: 'MORE', onTap: () {}),
       ],
     );
@@ -749,6 +789,32 @@ class _ScenePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ScenePainter old) => old.scene != scene || old.accent != accent;
+}
+
+// ── Panneau verre dépoli (liquid glass) ──────────────────────────────────────
+
+Widget _glassPanel({required Widget child}) {
+  return ClipRRect(
+    borderRadius: BorderRadius.circular(28),
+    child: BackdropFilter(
+      filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.16),
+              Colors.white.withValues(alpha: 0.04),
+            ],
+          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        ),
+        child: child,
+      ),
+    ),
+  );
 }
 
 // ── Helpers couleur ───────────────────────────────────────────────────────────
