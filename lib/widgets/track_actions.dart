@@ -3,11 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/track.dart';
 import '../models/track_visuals.dart';
+import '../models/playlist.dart';
 import '../providers/player_provider.dart';
 import '../providers/import_provider.dart';
 import '../providers/favourites_provider.dart';
 import '../providers/notice_provider.dart';
+import '../providers/playlist_provider.dart';
 import '../services/track_service.dart';
+import '../services/playlist_service.dart';
 import '../theme/app_theme.dart';
 import '../navigation/app_nav.dart';
 import 'track_cover.dart';
@@ -231,6 +234,10 @@ void showTrackActionsSheet(BuildContext context, WidgetRef ref, Track track) {
         // Lance l'import : la progression s'affiche dans la bannière (notifications)
         ref.read(importProvider.notifier).startAndWait(track);
       },
+      onAddToPlaylist: () {
+        Navigator.pop(ctx);
+        showAddToPlaylistSheet(context, ref, track);
+      },
       onOther: (label) {
         Navigator.pop(ctx);
         toast('$label — à venir');
@@ -246,6 +253,7 @@ class _TrackMenuSheet extends StatelessWidget {
   final VoidCallback onLike;
   final VoidCallback onShare;
   final VoidCallback onImport;
+  final VoidCallback onAddToPlaylist;
   final ValueChanged<String> onOther;
 
   const _TrackMenuSheet({
@@ -255,6 +263,7 @@ class _TrackMenuSheet extends StatelessWidget {
     required this.onLike,
     required this.onShare,
     required this.onImport,
+    required this.onAddToPlaylist,
     required this.onOther,
   });
 
@@ -309,7 +318,8 @@ class _TrackMenuSheet extends StatelessWidget {
               accent: track.isFavoris,
               onTap: onLike,
             ),
-          _MenuItem(icon: Icons.library_add, label: 'AJOUTER À UNE PLAYLIST', onTap: () => onOther('Ajouter à une playlist')),
+          // Ajout en playlist : nécessite un id Mkzik → masqué pour les externes
+          if (!external) _MenuItem(icon: Icons.library_add, label: 'AJOUTER À UNE PLAYLIST', onTap: onAddToPlaylist),
           // Partage indisponible pour un externe non importé (pas d'URL Mkzik)
           if (!external) _MenuItem(icon: Icons.ios_share, label: 'PARTAGER', onTap: onShare),
           _MenuItem(icon: Icons.download, label: 'TÉLÉCHARGER HORS LIGNE', onTap: () => onOther('Téléchargement')),
@@ -345,6 +355,98 @@ class _MenuItem extends StatelessWidget {
                 style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Ouvre une feuille pour ajouter [track] à une des playlists de l'utilisateur.
+void showAddToPlaylistSheet(BuildContext context, WidgetRef ref, Track track) {
+  if (track.apiId == null) {
+    ref.read(noticeProvider.notifier).show('Indisponible pour ce titre');
+    return;
+  }
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: kSheetBg,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (_) => _AddToPlaylistSheet(track: track),
+  );
+}
+
+class _AddToPlaylistSheet extends ConsumerWidget {
+  final Track track;
+  const _AddToPlaylistSheet({required this.track});
+
+  Future<void> _add(BuildContext context, WidgetRef ref, Playlist pl) async {
+    Navigator.pop(context);
+    final ok = await PlaylistService.addTrack(pl.id, track.apiId!);
+    final notifier = ref.read(noticeProvider.notifier);
+    if (ok) {
+      ref.invalidate(playlistsProvider);
+      ref.invalidate(playlistTracksProvider(pl.id));
+      notifier.show('Ajouté à « ${pl.title} »', icon: NoticeIcon.queue);
+    } else {
+      notifier.show('Ajout impossible');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(playlistsProvider);
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 10),
+          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Ajouter à une playlist',
+                  style: TextStyle(color: kTextPrimary, fontSize: 15, fontWeight: FontWeight.w700)),
+            ),
+          ),
+          const Divider(height: 1, color: kBorderSoft),
+          async.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(color: kAccent),
+            ),
+            error: (_, _) => const Padding(
+              padding: EdgeInsets.all(20),
+              child: Text('Playlists indisponibles.', style: TextStyle(color: kTextSecondary)),
+            ),
+            data: (playlists) {
+              if (playlists.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Text('Aucune playlist — crée-en une dans la Bibliothèque.',
+                      style: TextStyle(color: kTextSecondary)),
+                );
+              }
+              return Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  itemCount: playlists.length,
+                  itemBuilder: (_, i) {
+                    final pl = playlists[i];
+                    return _MenuItem(
+                      icon: Icons.queue_music,
+                      label: pl.title.toUpperCase(),
+                      onTap: () => _add(context, ref, pl),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
       ),
     );
   }
