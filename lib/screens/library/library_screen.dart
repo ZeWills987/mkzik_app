@@ -9,6 +9,7 @@ import '../../providers/notice_provider.dart';
 import '../../services/playlist_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/track_actions.dart';
+import 'playlist_detail_screen.dart';
 
 class LibraryScreen extends ConsumerWidget {
   const LibraryScreen({super.key});
@@ -80,6 +81,7 @@ Widget _playlistsSliver(BuildContext context, WidgetRef ref, AsyncValue<List<Pla
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: _PlaylistRow(
               playlist: playlists[i],
+              onTap: () => PlaylistDetailScreen.open(context, playlists[i]),
               onRename: () => _renamePlaylist(context, ref, playlists[i]),
               onDelete: () => _deletePlaylist(context, ref, playlists[i]),
             ),
@@ -282,13 +284,16 @@ class _AddButton extends StatelessWidget {
 
 class _PlaylistRow extends StatelessWidget {
   final Playlist playlist;
+  final VoidCallback onTap;
   final VoidCallback onRename;
   final VoidCallback onDelete;
-  const _PlaylistRow({required this.playlist, required this.onRename, required this.onDelete});
+  const _PlaylistRow({required this.playlist, required this.onTap, required this.onRename, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
@@ -328,6 +333,7 @@ class _PlaylistRow extends StatelessWidget {
             ],
           ),
         ],
+      ),
       ),
     );
   }
