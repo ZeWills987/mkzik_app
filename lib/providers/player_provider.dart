@@ -95,8 +95,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   // Titres réellement présents dans _playlist (sous-ensemble jouable de la file :
   // les externes non importés en sont exclus). Parallèle aux enfants de _playlist.
   List<Track> _playerTracks = [];
-  // Dernier id ayant déclenché un recordPlay (évite les doublons à chaque resync).
-  String? _lastRecordedId;
+  // Tracking d'écoute (POST /api/plays + PATCH complete)
+  int? _playId; // playId de l'écoute en cours
+  Track? _playTrack; // titre suivi par cette écoute
+  int _playMaxMs = 0; // position max atteinte → listenedSeconds
 
   PlayerNotifier(this._ref) : super(const PlayerState()) {
     _initAudioSession();
@@ -104,6 +106,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // Écoute de la position en temps réel
     _audio.positionStream.listen((pos) {
       state = state.copyWith(position: pos);
+      final ms = pos.inMilliseconds;
+      if (_playTrack != null && ms > _playMaxMs) _playMaxMs = ms;
     });
 
     // Écoute de la durée quand un titre est chargé
@@ -173,11 +177,37 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       isLiked: t.isFavoris,
       position: sameTrack ? state.position : Duration.zero,
     );
-    // Enregistre l'écoute une fois par titre réellement atteint
-    if (!sameTrack && t.apiId != null && t.id != _lastRecordedId) {
-      _lastRecordedId = t.id;
-      TrackService.recordPlay(t.apiId!);
+    // Vrai changement de titre (auto-avance / skip) → clôt l'écoute précédente
+    // et démarre la nouvelle.
+    if (!sameTrack) {
+      unawaited(_finishPlay());
+      unawaited(_beginPlay(t));
     }
+  }
+
+  // ── Tracking d'écoute (POST /api/plays + PATCH complete) ────────────────────
+
+  // Démarre une écoute pour [t] (récupère le playId du backend).
+  Future<void> _beginPlay(Track t) async {
+    _playTrack = t;
+    _playMaxMs = 0;
+    _playId = null;
+    if (t.apiId == null) return;
+    _playId = await TrackService.startPlay(t.apiId!);
+  }
+
+  // Clôt l'écoute en cours : envoie les secondes écoutées + si terminée (~90%).
+  Future<void> _finishPlay() async {
+    final id = _playId;
+    final t = _playTrack;
+    final maxMs = _playMaxMs;
+    _playId = null;
+    _playTrack = null;
+    _playMaxMs = 0;
+    if (id == null || t == null) return;
+    final durMs = t.duration.inMilliseconds;
+    final completed = durMs > 0 && maxMs >= durMs * 0.9;
+    await TrackService.completePlay(id, listenedSeconds: maxMs / 1000.0, completed: completed);
   }
 
   Future<void> playTrack(Track track, {List<Track>? queue}) async {
@@ -199,6 +229,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       position: Duration.zero,
       duration: track.duration,
     );
+
+    // Clôt l'écoute du titre précédent avant d'en démarrer une nouvelle
+    unawaited(_finishPlay());
 
     // Résout le titre sélectionné (import si externe → URL signée)
     final current = await _resolvePlayable(track);
@@ -222,12 +255,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     try {
       _playerTracks = [current];
       _playlist = ConcatenatingAudioSource(children: [_audioSourceFor(current)]);
-      _lastRecordedId = null; // autorise le recordPlay du nouveau titre courant
       await _audio.setAudioSource(_playlist!, initialIndex: 0, initialPosition: Duration.zero);
       if (token != _playToken) return;
       await _audio.setLoopMode(_loopFor(state.repeatMode));
       await _audio.setShuffleModeEnabled(state.isShuffle);
       await _audio.play();
+      // Démarre le tracking d'écoute du titre courant (l'event d'index initial
+      // est "same track" → on le démarre explicitement ici).
+      unawaited(_beginPlay(current));
     } catch (e) {
       mkLog('Mkzik ▶ erreur lecture "${track.title}" : $e');
       if (token == _playToken) state = state.copyWith(isPlaying: false);
@@ -464,6 +499,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   @override
   void dispose() {
+    unawaited(_finishPlay()); // clôt l'écoute en cours
     _audio.dispose();
     super.dispose();
   }
