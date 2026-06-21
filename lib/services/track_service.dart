@@ -129,6 +129,26 @@ class TrackService {
     await ApiClient.getUri(_api('api/tracks/$trackId/play'));
   }
 
+  /// `POST api/plays` body {trackId} → 201 {playId}. Début d'une écoute (tracking
+  /// détaillé). Renvoie le playId à fournir à [completePlay], ou null si échec.
+  static Future<int?> startPlay(int trackId) async {
+    if (!(ApiConfig.token?.isNotEmpty ?? false)) return null;
+    final res = await ApiClient.postUri(_api('api/plays'), body: {'trackId': trackId});
+    final data = res.orElse(null);
+    return data is Map ? (data['playId'] as num?)?.toInt() : null;
+  }
+
+  /// `PATCH api/plays/{id}/complete` body {listenedSeconds, completed} → 204.
+  /// Fin d'une écoute (secondes écoutées + lecture terminée ou non).
+  static Future<void> completePlay(int playId,
+      {required double listenedSeconds, required bool completed}) async {
+    if (!(ApiConfig.token?.isNotEmpty ?? false)) return;
+    await ApiClient.patchUri(
+      _api('api/plays/$playId/complete'),
+      body: {'listenedSeconds': listenedSeconds, 'completed': completed},
+    );
+  }
+
   /// `GET api/tracks/{id}/audio` → { audio_url, expires_at }.
   static Future<String?> getSignedAudioUrl(int trackId) async {
     final res = await ApiClient.getUri(_api('api/tracks/$trackId/audio'));

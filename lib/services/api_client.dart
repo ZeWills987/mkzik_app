@@ -48,6 +48,9 @@ class ApiClient {
   static Future<ApiResult<dynamic>> putUri(Uri uri, {Object? body, bool auth = true}) =>
       _send('PUT', uri, body: body, auth: auth);
 
+  static Future<ApiResult<dynamic>> patchUri(Uri uri, {Object? body, bool auth = true}) =>
+      _send('PATCH', uri, body: body, auth: auth);
+
   static Future<ApiResult<dynamic>> deleteUri(Uri uri, {Object? body, bool auth = true}) =>
       _send('DELETE', uri, body: body, auth: auth);
 
@@ -67,6 +70,7 @@ class ApiClient {
         'GET' => http.get(uri, headers: headers),
         'POST' => http.post(uri, headers: headers, body: encoded),
         'PUT' => http.put(uri, headers: headers, body: encoded),
+        'PATCH' => http.patch(uri, headers: headers, body: encoded),
         'DELETE' => http.delete(uri, headers: headers, body: encoded),
         _ => throw ArgumentError('Méthode non supportée: $method'),
       }
