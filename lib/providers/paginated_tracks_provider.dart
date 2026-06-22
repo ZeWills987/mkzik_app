@@ -98,7 +98,7 @@ final newsFeedPagedProvider =
   );
 });
 
-/// "Historique" paginé → `GET api/history_played?limit=&offset=`.
+/// "Historique" paginé → `GET api/tracks/history?limit=&offset=`.
 final historyPlayPagedProvider =
     StateNotifierProvider.autoDispose<PagedTracksNotifier, PagedTracksState>((ref) {
   return PagedTracksNotifier(

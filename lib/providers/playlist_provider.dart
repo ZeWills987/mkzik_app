@@ -4,7 +4,7 @@ import '../models/track.dart';
 import '../services/playlist_service.dart';
 import 'auth_provider.dart';
 
-/// Playlists de l'utilisateur connecté → `GET /api/playlist?username=`.
+/// Playlists de l'utilisateur connecté → `GET /api/playlists?username=`.
 /// Se recharge automatiquement si l'username change (connexion/déconnexion).
 final playlistsProvider = FutureProvider<List<Playlist>>((ref) async {
   final username = ref.watch(authProvider.select((s) => s.username));
@@ -12,7 +12,7 @@ final playlistsProvider = FutureProvider<List<Playlist>>((ref) async {
   return PlaylistService.getPlaylists(username);
 });
 
-/// Titres d'une playlist → `GET /api/playlist/{id}/tracks`.
+/// Titres d'une playlist → `GET /api/playlists/{id}/tracks`.
 final playlistTracksProvider = FutureProvider.family<List<Track>, int>((ref, id) async {
   return PlaylistService.getTracks(id);
 });

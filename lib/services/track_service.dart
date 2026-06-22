@@ -22,9 +22,9 @@ class ExternalSearchEvent {
 class TrackService {
   // ── Recherche ──────────────────────────────────────────────────────────────
 
-  /// `GET api/track/popularity?title=` → titres internes triés par popularité.
+  /// `GET api/tracks/popular?title=` → titres internes triés par popularité.
   static Future<List<Track>> searchTracks(String query) async {
-    final res = await ApiClient.getUri(_api('api/track/popularity', {'title': query}));
+    final res = await ApiClient.getUri(_api('api/tracks/popular', {'title': query}));
     return _tracksFrom(res.orElse(null));
   }
 
@@ -89,9 +89,9 @@ class TrackService {
     return _tracksFrom(res.orElse(null));
   }
 
-  /// `GET api/history_played?limit=&offset=` → historique d'écoute.
+  /// `GET api/tracks/history?limit=&offset=` → historique d'écoute.
   static Future<List<Track>> getHistoryPlay({int limit = 10, int offset = 0}) async {
-    final res = await ApiClient.getUri(_api('api/history_played', {'limit': '$limit', 'offset': '$offset'}));
+    final res = await ApiClient.getUri(_api('api/tracks/history', {'limit': '$limit', 'offset': '$offset'}));
     return _tracksFrom(res.orElse(null));
   }
 
@@ -103,10 +103,10 @@ class TrackService {
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
-  /// `POST api/track/like` body {track_id} → like / unlike.
+  /// `POST api/tracks/{id}/likes` → like / unlike (toggle).
   /// Renvoie l'état après bascule (`isLiked`) et le nouveau total de likes.
   static Future<({bool ok, bool isLiked, int likes})> toggleLike(int trackId) async {
-    final res = await ApiClient.postUri(_api('api/track/like'), body: {'track_id': trackId});
+    final res = await ApiClient.postUri(_api('api/tracks/$trackId/likes'));
     return switch (res) {
       Ok(:final data) => (
           ok: true,
@@ -123,10 +123,10 @@ class TrackService {
     return _tracksFrom(res.orElse(null));
   }
 
-  /// `GET api/tracks/{id}/play` → enregistre une écoute (historique). Fire-and-forget.
+  /// `POST api/tracks/{id}/plays` → enregistre une écoute (historique). Fire-and-forget.
   static Future<void> recordPlay(int trackId) async {
     if (!(ApiConfig.token?.isNotEmpty ?? false)) return;
-    await ApiClient.getUri(_api('api/tracks/$trackId/play'));
+    await ApiClient.postUri(_api('api/tracks/$trackId/plays'));
   }
 
   /// `POST api/plays` body {trackId} → 201 {playId}. Début d'une écoute (tracking

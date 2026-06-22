@@ -1,4 +1,4 @@
-/// Modèle d'une playlist utilisateur (cf. `GET /api/playlist`).
+/// Modèle d'une playlist utilisateur (cf. `GET /api/playlists`).
 /// L'API ne fournit que les métadonnées (id, titre, nombre de favoris) — il
 /// n'existe pas de route pour le contenu détaillé d'une playlist.
 class Playlist {
