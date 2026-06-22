@@ -22,9 +22,11 @@ class ExternalSearchEvent {
 class TrackService {
   // ── Recherche ──────────────────────────────────────────────────────────────
 
-  /// `GET api/tracks/popular?title=` → titres internes triés par popularité.
+  /// `GET api/popular/tracks?title=` → titres internes triés par popularité.
+  /// Route hors du namespace `tracks` pour éviter la collision avec le wildcard
+  /// `GET api/tracks/{username}`.
   static Future<List<Track>> searchTracks(String query) async {
-    final res = await ApiClient.getUri(_api('api/tracks/popular', {'title': query}));
+    final res = await ApiClient.getUri(_api('api/popular/tracks', {'title': query}));
     return _tracksFrom(res.orElse(null));
   }
 
@@ -89,9 +91,11 @@ class TrackService {
     return _tracksFrom(res.orElse(null));
   }
 
-  /// `GET api/tracks/history?limit=&offset=` → historique d'écoute.
+  /// `GET api/history/tracks?limit=&offset=` → historique d'écoute.
+  /// Route volontairement hors du namespace `tracks` pour éviter la collision
+  /// avec le wildcard `GET api/tracks/{username}`.
   static Future<List<Track>> getHistoryPlay({int limit = 10, int offset = 0}) async {
-    final res = await ApiClient.getUri(_api('api/tracks/history', {'limit': '$limit', 'offset': '$offset'}));
+    final res = await ApiClient.getUri(_api('api/history/tracks', {'limit': '$limit', 'offset': '$offset'}));
     return _tracksFrom(res.orElse(null));
   }
 
