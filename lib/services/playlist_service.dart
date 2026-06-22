@@ -5,7 +5,7 @@ import '../models/playlist.dart';
 import '../models/track.dart';
 import 'api_client.dart';
 
-/// Accès aux routes playlist (`/api/playlist`). POST est en form-urlencoded et
+/// Accès aux routes playlist (`/api/playlists`). POST est en form-urlencoded et
 /// PATCH n'est pas couvert par [ApiClient] → appels http directs pour ces deux.
 class PlaylistService {
   static const _timeout = Duration(seconds: 12);
@@ -18,20 +18,20 @@ class PlaylistService {
         ...?extra,
       };
 
-  /// `GET /api/playlist?username=` → playlists de l'utilisateur.
+  /// `GET /api/playlists?username=` → playlists de l'utilisateur.
   static Future<List<Playlist>> getPlaylists(String username) async {
-    final res = await ApiClient.getUri(_api('api/playlist', {'username': username}));
+    final res = await ApiClient.getUri(_api('api/playlists', {'username': username}));
     final data = res.orElse(null);
     final list = data is List ? data : const [];
     return list.whereType<Map<String, dynamic>>().map(Playlist.fromJson).toList();
   }
 
-  /// `POST /api/playlist` (form-urlencoded `title=`) → playlist créée.
+  /// `POST /api/playlists` (form-urlencoded `title=`) → playlist créée.
   static Future<Playlist?> create(String title) async {
     try {
       final res = await http
           .post(
-            _api('api/playlist'),
+            _api('api/playlists'),
             headers: _auth({'Content-Type': 'application/x-www-form-urlencoded'}),
             body: {'title': title},
           )
@@ -44,11 +44,15 @@ class PlaylistService {
     return null;
   }
 
-  /// `PATCH /api/playlist?id=&title=` → renomme.
+  /// `PATCH /api/playlists/{id}` (form-urlencoded `title=`) → renomme.
   static Future<bool> rename(int id, String title) async {
     try {
       final res = await http
-          .patch(_api('api/playlist', {'id': '$id', 'title': title}), headers: _auth())
+          .patch(
+            _api('api/playlists/$id'),
+            headers: _auth({'Content-Type': 'application/x-www-form-urlencoded'}),
+            body: {'title': title},
+          )
           .timeout(_timeout);
       return res.statusCode >= 200 && res.statusCode < 300;
     } catch (_) {
@@ -56,29 +60,29 @@ class PlaylistService {
     }
   }
 
-  /// `DELETE /api/playlist?id=` → supprime.
+  /// `DELETE /api/playlists/{id}` → supprime.
   static Future<bool> remove(int id) async {
-    final res = await ApiClient.deleteUri(_api('api/playlist', {'id': '$id'}));
+    final res = await ApiClient.deleteUri(_api('api/playlists/$id'));
     return res.isOk;
   }
 
-  /// `GET /api/playlist/{id}/tracks` → titres de la playlist.
+  /// `GET /api/playlists/{id}/tracks` → titres de la playlist.
   static Future<List<Track>> getTracks(int playlistId) async {
-    final res = await ApiClient.getUri(_api('api/playlist/$playlistId/tracks'));
+    final res = await ApiClient.getUri(_api('api/playlists/$playlistId/tracks'));
     final data = res.orElse(null);
     final list = data is List ? data : (data is Map ? (data['tracks'] as List? ?? const []) : const []);
     return list.whereType<Map<String, dynamic>>().map(Track.fromJson).toList();
   }
 
-  /// `POST /api/playlist/{id}/tracks` body {track_id} → ajoute un titre.
+  /// `POST /api/playlists/{id}/tracks` body {track_id} → ajoute un titre.
   static Future<bool> addTrack(int playlistId, int trackId) async {
-    final res = await ApiClient.postUri(_api('api/playlist/$playlistId/tracks'), body: {'track_id': trackId});
+    final res = await ApiClient.postUri(_api('api/playlists/$playlistId/tracks'), body: {'track_id': trackId});
     return res.isOk;
   }
 
-  /// `DELETE /api/playlist/{id}/tracks/{trackId}` → retire un titre.
+  /// `DELETE /api/playlists/{id}/tracks/{trackId}` → retire un titre.
   static Future<bool> removeTrack(int playlistId, int trackId) async {
-    final res = await ApiClient.deleteUri(_api('api/playlist/$playlistId/tracks/$trackId'));
+    final res = await ApiClient.deleteUri(_api('api/playlists/$playlistId/tracks/$trackId'));
     return res.isOk;
   }
 }
