@@ -11,11 +11,18 @@ import '../../theme/app_theme.dart';
 import '../../widgets/track_actions.dart';
 import 'playlist_detail_screen.dart';
 
-class LibraryScreen extends ConsumerWidget {
+class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends ConsumerState<LibraryScreen> {
+  int _tab = 0; // 0 = Tout, 1 = Favoris, 2 = Playlists
+
+  @override
+  Widget build(BuildContext context) {
     final favAsync = ref.watch(favouritesProvider);
     final plAsync = ref.watch(playlistsProvider);
 
@@ -36,24 +43,11 @@ class LibraryScreen extends ConsumerWidget {
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
-              const SliverToBoxAdapter(child: _Header()),
-
-              // ── Playlists ───────────────────────────────────────────────
+              SliverToBoxAdapter(child: _Header(onCreate: () => _createPlaylist(context, ref))),
               SliverToBoxAdapter(
-                child: _SectionHeader(
-                  icon: Icons.queue_music,
-                  label: 'Playlists',
-                  trailing: _AddButton(onTap: () => _createPlaylist(context, ref)),
-                ),
+                child: _Tabs(current: _tab, onTap: (i) => setState(() => _tab = i)),
               ),
-              _playlistsSliver(context, ref, plAsync),
-
-              // ── Titres likés ────────────────────────────────────────────
-              const SliverToBoxAdapter(
-                child: _SectionHeader(icon: Icons.favorite, label: 'Titres likés'),
-              ),
-              _favouritesSliver(context, ref, favAsync),
-
+              ..._contentSlivers(favAsync, plAsync),
               const SliverToBoxAdapter(child: SizedBox(height: 24)),
             ],
           ),
@@ -61,9 +55,80 @@ class LibraryScreen extends ConsumerWidget {
       ),
     );
   }
+
+  List<Widget> _contentSlivers(AsyncValue<List<Track>> favAsync, AsyncValue<List<Playlist>> plAsync) {
+    switch (_tab) {
+      case 1:
+        return [_favouritesSliver(context, ref, favAsync)];
+      case 2:
+        return [_playlistsSliver(context, ref, plAsync)];
+      default:
+        return [_allSliver(context, ref, favAsync, plAsync)];
+    }
+  }
 }
 
-// ── Slivers de sections ───────────────────────────────────────────────────────
+// ── Onglet « Tout » : favoris + playlists entrelacés (récents en premier) ──────
+
+Widget _allSliver(
+  BuildContext context,
+  WidgetRef ref,
+  AsyncValue<List<Track>> favAsync,
+  AsyncValue<List<Playlist>> plAsync,
+) {
+  if (favAsync.isLoading || plAsync.isLoading) {
+    return const SliverToBoxAdapter(child: _InlineLoader());
+  }
+  final tracks = favAsync.valueOrNull ?? const <Track>[];
+  final playlists = plAsync.valueOrNull ?? const <Playlist>[];
+  if (tracks.isEmpty && playlists.isEmpty) {
+    return const SliverToBoxAdapter(
+      child: _InlineMessage('Ta librairie est vide — like des Ziks ou crée une playlist.'),
+    );
+  }
+  final items = _mergeRecent(playlists, tracks);
+  return SliverList(
+    delegate: SliverChildBuilderDelegate(
+      (context, i) {
+        final item = items[i];
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: item is Playlist
+              ? _PlaylistRow(
+                  playlist: item,
+                  onTap: () => PlaylistDetailScreen.open(context, item),
+                  onRename: () => _renamePlaylist(context, ref, item),
+                  onDelete: () => _deletePlaylist(context, ref, item),
+                )
+              : TrackResultRow(
+                  track: item as Track,
+                  onTap: () => ref.read(playerProvider.notifier).playTrack(item, queue: tracks),
+                  onMenu: () => showTrackActionsSheet(context, ref, item),
+                ),
+        );
+      },
+      childCount: items.length,
+    ),
+  );
+}
+
+/// Entrelace playlists (id décroissant = plus récentes) et favoris (ordre API),
+/// au mieux faute de timestamp d'action côté API.
+List<Object> _mergeRecent(List<Playlist> playlists, List<Track> tracks) {
+  final pls = [...playlists]..sort((a, b) => b.id.compareTo(a.id));
+  final out = <Object>[];
+  var pi = 0, ti = 0;
+  while (pi < pls.length || ti < tracks.length) {
+    if (ti >= tracks.length || (pi < pls.length && pi <= ti)) {
+      out.add(pls[pi++]);
+    } else {
+      out.add(tracks[ti++]);
+    }
+  }
+  return out;
+}
+
+// ── Slivers par section ───────────────────────────────────────────────────────
 
 Widget _playlistsSliver(BuildContext context, WidgetRef ref, AsyncValue<List<Playlist>> async) {
   return async.when(
@@ -216,39 +281,66 @@ Future<String?> _promptName(BuildContext context, {required String title, String
 // ── Widgets ───────────────────────────────────────────────────────────────────
 
 class _Header extends StatelessWidget {
-  const _Header();
+  final VoidCallback onCreate;
+  const _Header({required this.onCreate});
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(20, 20, 20, 4),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text('Ma librairie',
-            style: TextStyle(color: kTextPrimary, fontSize: 26, fontWeight: FontWeight.w800)),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 16, 4),
+      child: Row(
+        children: [
+          const Text('Ma librairie',
+              style: TextStyle(color: kTextPrimary, fontSize: 26, fontWeight: FontWeight.w800)),
+          const Spacer(),
+          _AddButton(onTap: onCreate),
+        ],
       ),
     );
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Widget? trailing;
-  const _SectionHeader({required this.icon, required this.label, this.trailing});
+class _Tabs extends StatelessWidget {
+  final int current;
+  final ValueChanged<int> onTap;
+  const _Tabs({required this.current, required this.onTap});
+
+  static const _labels = ['Tout', 'Favoris', 'Playlists'];
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
       child: Row(
-        children: [
-          Icon(icon, color: kAccent, size: 18),
-          const SizedBox(width: 8),
-          Text(label, style: const TextStyle(color: kTextPrimary, fontSize: 18, fontWeight: FontWeight.w800)),
-          const Spacer(),
-          ?trailing,
-        ],
+        children: List.generate(_labels.length, (i) {
+          final active = current == i;
+          return GestureDetector(
+            onTap: () => onTap(i),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 22, top: 4, bottom: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_labels[i],
+                      style: TextStyle(
+                        color: active ? kAccent : kTextSecondary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.3,
+                      )),
+                  const SizedBox(height: 5),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    height: 2,
+                    width: active ? 22 : 0,
+                    color: kAccent,
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
@@ -294,46 +386,46 @@ class _PlaylistRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [kAccentLight, kAccent],
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [kAccentLight, kAccent],
+                ),
+              ),
+              child: const Icon(Icons.queue_music, color: Colors.white, size: 26),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(playlist.title,
+                      style: const TextStyle(color: kTextPrimary, fontSize: 15, fontWeight: FontWeight.w600),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 3),
+                  Text(playlist.countLabel, style: const TextStyle(color: kTextSecondary, fontSize: 12.5)),
+                ],
               ),
             ),
-            child: const Icon(Icons.queue_music, color: Colors.white, size: 26),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(playlist.title,
-                    style: const TextStyle(color: kTextPrimary, fontSize: 15, fontWeight: FontWeight.w600),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 3),
-                Text(playlist.countLabel, style: const TextStyle(color: kTextSecondary, fontSize: 12.5)),
+            PopupMenuButton<String>(
+              color: kSheetBg,
+              icon: const Icon(Icons.more_horiz, color: kTextSecondary, size: 24),
+              onSelected: (v) => v == 'rename' ? onRename() : onDelete(),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'rename', child: Text('Renommer', style: TextStyle(color: kTextPrimary))),
+                PopupMenuItem(value: 'delete', child: Text('Supprimer', style: TextStyle(color: kErrorText))),
               ],
             ),
-          ),
-          PopupMenuButton<String>(
-            color: kSheetBg,
-            icon: const Icon(Icons.more_horiz, color: kTextSecondary, size: 24),
-            onSelected: (v) => v == 'rename' ? onRename() : onDelete(),
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'rename', child: Text('Renommer', style: TextStyle(color: kTextPrimary))),
-              PopupMenuItem(value: 'delete', child: Text('Supprimer', style: TextStyle(color: kErrorText))),
-            ],
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
@@ -343,7 +435,7 @@ class _InlineLoader extends StatelessWidget {
   const _InlineLoader();
   @override
   Widget build(BuildContext context) => const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
+        padding: EdgeInsets.symmetric(vertical: 40),
         child: Center(child: CircularProgressIndicator(color: kAccent)),
       );
 }
@@ -353,7 +445,7 @@ class _InlineMessage extends StatelessWidget {
   const _InlineMessage(this.text);
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
         child: Text(text, style: const TextStyle(color: kTextSecondary, fontSize: 13)),
       );
 }

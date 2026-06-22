@@ -11,6 +11,7 @@ import '../../providers/player_provider.dart';
 import '../../providers/notice_provider.dart';
 import '../../widgets/current_list_sheet.dart';
 import '../../widgets/track_cover.dart';
+import '../../widgets/track_actions.dart';
 import '../../utils/media.dart';
 import '../profile/profile_screen.dart';
 
@@ -273,6 +274,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                                   text: track.pageUrl.isNotEmpty ? track.pageUrl : track.title));
                               ref.read(noticeProvider.notifier).show('Lien copié', icon: NoticeIcon.share);
                             },
+                            onMore: () => showTrackActionsSheet(context, ref, track),
                           ),
                           const SizedBox(height: 18),
                           // Waveform + temps
@@ -411,6 +413,7 @@ class _ActionsRow extends StatelessWidget {
   final Color accent;
   final VoidCallback onLike;
   final VoidCallback onShare;
+  final VoidCallback onMore;
 
   const _ActionsRow({
     required this.isLiked,
@@ -418,6 +421,7 @@ class _ActionsRow extends StatelessWidget {
     required this.accent,
     required this.onLike,
     required this.onShare,
+    required this.onMore,
   });
 
   @override
@@ -434,7 +438,7 @@ class _ActionsRow extends StatelessWidget {
         ),
         _ActionItem(icon: Icons.mic_none, label: 'LYRICS', onTap: () {}),
         _ActionItem(icon: Icons.ios_share, label: 'SHARE', onTap: onShare),
-        _ActionItem(icon: Icons.more_horiz, label: 'MORE', onTap: () {}),
+        _ActionItem(icon: Icons.more_horiz, label: 'MORE', onTap: onMore),
       ],
     );
   }
