@@ -11,7 +11,7 @@ final newsFeedProvider = FutureProvider<List<Track>>((ref) async {
   return tracks;
 });
 
-/// "Historique" → `GET api/tracks/history` (aperçu section, limité).
+/// "Historique" → `GET api/history/tracks` (aperçu section, limité).
 final historyPlayProvider = FutureProvider<List<Track>>((ref) async {
   final tracks = await TrackService.getHistoryPlay(limit: 20);
   if (tracks.isEmpty && ApiConfig.useDemoData) return kDemoTracks;
