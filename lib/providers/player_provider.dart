@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:audio_session/audio_session.dart';
+import '../config/api_config.dart';
 import '../models/track.dart';
 import '../services/track_service.dart';
 import '../utils/media.dart';
@@ -313,12 +314,18 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   /// Rend un track réellement jouable (cf. React `handleClicTrack`) :
   /// 1. externe non intégré (`needsImport`) → import via Python, on récupère le track intégré
+  ///    (ou, si `EXTERNAL_STREAM=true`, lecture temps réel via `GET /stream?url=` sans import)
   /// 2. si pas d'URL audio directe (http) → URL signée via `api/tracks/{id}/audio`
   Future<Track?> _resolvePlayable(Track track) async {
     var t = track;
 
-    // 1) Import des externes non intégrés (avec notification de progression)
+    // 1) Externes non intégrés
     if (t.needsImport) {
+      // Mode stream temps réel : on joue directement depuis le flux yt-dlp, sans import S3.
+      if (ApiConfig.externalStream && t.pageUrl.isNotEmpty) {
+        return t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
+      }
+      // Mode S3 : import (avec notification de progression) puis on récupère le track intégré.
       final imported = await _ref.read(importProvider.notifier).startAndWait(t);
       if (imported == null) return null;
       t = imported;
@@ -338,9 +345,17 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// Résolution légère pour les autres titres de la file (préchargement) : signe
   /// l'URL des internes mais n'importe PAS les externes. Renvoie null pour les
   /// titres non jouables sans import → ils sont exclus de la playlist native.
+  /// En mode `EXTERNAL_STREAM=true`, les externes deviennent jouables sans import
+  /// (simple URL de flux), donc on les garde dans la file.
   Future<Track?> _resolveForQueue(Track t) async {
     if (t.hasPlayableUrl) return t;
-    if (!t.needsImport && t.apiId != null) {
+    if (t.needsImport) {
+      if (ApiConfig.externalStream && t.pageUrl.isNotEmpty) {
+        return t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
+      }
+      return null; // mode S3 : pas d'import au préchargement
+    }
+    if (t.apiId != null) {
       final signed = await TrackService.getSignedAudioUrl(t.apiId!);
       if (signed != null && signed.isNotEmpty) return t.copyWith(audioUrl: signed);
     }

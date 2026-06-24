@@ -24,6 +24,19 @@ class ApiConfig {
   /// masquées par de faux contenus. Mettre DEMO=true dans le .env pour l'activer.
   static bool get useDemoData => (dotenv.maybeGet('DEMO') ?? 'false').toLowerCase() == 'true';
 
+  /// Mode de lecture des **externes non intégrés** (YouTube/SoundCloud) :
+  ///   • `false` (défaut) → import S3 (`POST /download` + SSE) puis URL signée.
+  ///   • `true`           → streaming **temps réel** via `GET /stream?url=`
+  ///                        (yt-dlp, aucun upload S3, aucune entrée en BD).
+  /// Bascule avec `EXTERNAL_STREAM=true` dans le `.env`.
+  static bool get externalStream => (dotenv.maybeGet('EXTERNAL_STREAM') ?? 'false').toLowerCase() == 'true';
+
+  /// URL de lecture temps réel d'un externe à partir de sa page d'origine.
+  /// `GET {pythonUrl}stream?url=<page>` → flux audio binaire (Range géré par just_audio).
+  /// Host = [pythonUrl] (microservice yt-dlp), comme `/download` et `/search/stream`.
+  static String streamUrl(String pageUrl) =>
+      '${pythonUrl}stream?url=${Uri.encodeQueryComponent(pageUrl)}';
+
   // Garantit un slash final (les routes sont construites en "${baseUrl}api/...")
   static String _normalize(String url) => url.endsWith('/') ? url : '$url/';
 }
