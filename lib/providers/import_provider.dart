@@ -3,7 +3,9 @@ import '../models/track.dart';
 import '../services/download_service.dart';
 
 /// Étapes d'un import externe (alignées sur les statuts du service Python).
-enum ImportStatus { pending, downloading, extracting, validating, uploading, saving, completed, error }
+/// `streaming` est à part : il décrit le chargement d'un flux temps réel
+/// (mode `EXTERNAL_STREAM`), pas un import S3.
+enum ImportStatus { pending, downloading, extracting, validating, uploading, saving, streaming, completed, error }
 
 /// Un import en cours (ou récemment terminé) — affiché dans la bannière.
 class ImportJob {
@@ -31,6 +33,7 @@ class ImportJob {
         ImportStatus.validating => 'Validation…',
         ImportStatus.uploading => 'Envoi…',
         ImportStatus.saving => 'Enregistrement…',
+        ImportStatus.streaming => 'Chargement du flux…',
         ImportStatus.completed => 'Importé sur Mkzik ✓',
         ImportStatus.error => error ?? 'Échec de l\'import',
       };
@@ -74,6 +77,23 @@ class ImportNotifier extends StateNotifier<List<ImportJob>> {
       _autoDismiss(id, const Duration(seconds: 6));
     }
     return imported;
+  }
+
+  // ── Stream temps réel (mode EXTERNAL_STREAM) ────────────────────────────────
+
+  /// Affiche un spinner « Chargement du flux… » le temps que le stream temps réel
+  /// (yt-dlp) se résolve et se mette en mémoire tampon. Renvoie l'id du job, à
+  /// passer à [dismiss] dès que la lecture démarre, ou à [streamError] si échec.
+  String startStream(Track track) {
+    final id = 'stream-${track.id}';
+    _upsert(ImportJob(id: id, title: track.title, status: ImportStatus.streaming));
+    return id;
+  }
+
+  /// Bascule un job de stream en erreur (affiché brièvement puis auto-fermé).
+  void streamError(String id, String message) {
+    _patch(id, status: ImportStatus.error, error: message);
+    _autoDismiss(id, const Duration(seconds: 5));
   }
 
   void dismiss(String id) => state = state.where((j) => j.id != id).toList();

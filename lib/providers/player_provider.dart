@@ -250,6 +250,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       state = state.copyWith(queue: q, currentTrack: current, duration: current.duration);
     }
 
+    // Mode stream temps réel : spinner « Chargement du flux… » pendant que yt-dlp
+    // résout l'audio et que la mise en mémoire tampon se fait (setAudioSource).
+    // (En mode import S3, la progression est déjà affichée par _resolvePlayable.)
+    final importNotifier = _ref.read(importProvider.notifier);
+    final streamJobId = (track.needsImport && ApiConfig.externalStream)
+        ? importNotifier.startStream(track)
+        : null;
+
     // Démarrage IMMÉDIAT avec une playlist d'un seul titre (le titre cliqué) →
     // pas d'attente de la signature du reste de la file. Le reste est hydraté
     // en arrière-plan (cf. _hydrateQueue) sans couper la lecture.
@@ -257,15 +265,21 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       _playerTracks = [current];
       _playlist = ConcatenatingAudioSource(children: [_audioSourceFor(current)]);
       await _audio.setAudioSource(_playlist!, initialIndex: 0, initialPosition: Duration.zero);
-      if (token != _playToken) return;
+      if (token != _playToken) {
+        if (streamJobId != null) importNotifier.dismiss(streamJobId);
+        return;
+      }
       await _audio.setLoopMode(_loopFor(state.repeatMode));
       await _audio.setShuffleModeEnabled(state.isShuffle);
       await _audio.play();
+      // Flux prêt → on retire le spinner.
+      if (streamJobId != null) importNotifier.dismiss(streamJobId);
       // Démarre le tracking d'écoute du titre courant (l'event d'index initial
       // est "same track" → on le démarre explicitement ici).
       unawaited(_beginPlay(current));
     } catch (e) {
       mkLog('Mkzik ▶ erreur lecture "${track.title}" : $e');
+      if (streamJobId != null) importNotifier.streamError(streamJobId, 'Flux indisponible, réessaie');
       if (token == _playToken) state = state.copyWith(isPlaying: false);
       return;
     }
