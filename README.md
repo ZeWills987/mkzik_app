@@ -50,5 +50,3 @@ Les builds sont automatisés via GitHub Actions :
   release `android-latest`.
 
 Le `.env` de production est injecté en CI depuis le secret `MOBILE_ENV_FILE`.
-
-build
