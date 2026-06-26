@@ -18,7 +18,9 @@ android {
         applicationId = "fr.mkzik.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // minSdk 23 requis par flutter_secure_storage (encryptedSharedPreferences
+        // → androidx.security.crypto, API 23+). Couvre >99 % du parc Android.
+        minSdk = maxOf(flutter.minSdkVersion, 23)
         // Play Store exige targetSdk >= 35 (Android 15) pour les nouvelles apps
         // et les mises à jour depuis fin août 2025.
         targetSdk = 35
