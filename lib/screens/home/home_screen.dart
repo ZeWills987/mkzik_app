@@ -20,15 +20,18 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final newsAsync = ref.watch(newsFeedProvider);
     final historyAsync = ref.watch(historyPlayProvider);
+    final suggestionsAsync = ref.watch(globalSuggestionsProvider);
     final trendingAsync = ref.watch(trendingUsersProvider);
 
     // Données affichées (le repli démo éventuel est géré dans les providers)
     final tracks = newsAsync.maybeWhen(data: (d) => d, orElse: () => const <Track>[]);
     final historyTracks = historyAsync.maybeWhen(data: (d) => d, orElse: () => const <Track>[]);
+    final suggestionTracks = suggestionsAsync.maybeWhen(data: (d) => d, orElse: () => const <Track>[]);
     final artists = trendingAsync.maybeWhen(data: (d) => d, orElse: () => const <SearchUser>[]);
     final Track? featured = tracks.isNotEmpty ? tracks.first : null;
     final isLoadingNews = newsAsync.isLoading;
     final isLoadingHistory = historyAsync.isLoading;
+    final isLoadingSuggestions = suggestionsAsync.isLoading;
     final isLoadingTrending = trendingAsync.isLoading;
 
     return SafeArea(
@@ -38,10 +41,12 @@ class HomeScreen extends ConsumerWidget {
         onRefresh: () async {
           ref.invalidate(newsFeedProvider);
           ref.invalidate(historyPlayProvider);
+          ref.invalidate(globalSuggestionsProvider);
           ref.invalidate(trendingUsersProvider);
           await Future.wait([
             ref.read(newsFeedProvider.future),
             ref.read(historyPlayProvider.future),
+            ref.read(globalSuggestionsProvider.future),
             ref.read(trendingUsersProvider.future),
           ]);
         },
@@ -80,6 +85,25 @@ class HomeScreen extends ConsumerWidget {
                       ),
               ),
             ),
+            // Suggestions globales (mix top YouTube + top SoundCloud).
+            // Masquée si vide (et pas en cours de chargement) — source externe.
+            if (isLoadingSuggestions || suggestionTracks.isNotEmpty) ...[
+              SliverToBoxAdapter(child: _SectionHeader(title: 'Suggestions', onSeeAll: () {})),
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 250,
+                  child: isLoadingSuggestions
+                      ? const _LoadingRow(height: 250)
+                      : ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: suggestionTracks.length,
+                          separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
+                          itemBuilder: (_, i) => TrackCard(track: suggestionTracks[i], queue: suggestionTracks),
+                        ),
+                ),
+              ),
+            ],
             SliverToBoxAdapter(
               child: _SectionHeader(
                 title: 'Historique',

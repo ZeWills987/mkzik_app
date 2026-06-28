@@ -6,6 +6,7 @@ import 'package:audio_session/audio_session.dart';
 import '../config/api_config.dart';
 import '../models/track.dart';
 import '../services/track_service.dart';
+import '../services/suggestion_service.dart';
 import '../utils/media.dart';
 import 'import_provider.dart';
 import 'favourites_provider.dart';
@@ -101,6 +102,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   Track? _playTrack; // titre suivi par cette écoute
   int _playMaxMs = 0; // position max atteinte → listenedSeconds
 
+  // Autoplay radio : extension de la file par suggestions en fin de liste.
+  bool _radioBusy = false; // une extension est déjà en cours
+  String? _radioFromId; // id du titre depuis lequel on a déjà étendu (anti-doublon)
+
   PlayerNotifier(this._ref) : super(const PlayerState()) {
     _initAudioSession();
 
@@ -184,6 +189,13 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       unawaited(_finishPlay());
       unawaited(_beginPlay(t));
     }
+    // Autoplay radio : quand le titre courant est le DERNIER de la file, on
+    // précharge des suggestions et on les ajoute pour enchaîner sans coupure.
+    // (On se base sur la file Dart complète, pas sur _playerTracks qui peut être
+    // partiel pendant l'hydratation en arrière-plan.)
+    if (qIdx >= 0 && qIdx == state.queue.length - 1) {
+      unawaited(_maybeExtendWithRadio());
+    }
   }
 
   // ── Tracking d'écoute (POST /api/plays + PATCH complete) ────────────────────
@@ -219,6 +231,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       selIdx = 0;
     }
     final token = ++_playToken;
+    _radioFromId = null; // nouvelle file → autorise une nouvelle extension radio
 
     // Affichage immédiat du titre demandé (avant import/résolution)
     state = state.copyWith(
@@ -374,6 +387,100 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       if (signed != null && signed.isNotEmpty) return t.copyWith(audioUrl: signed);
     }
     return null;
+  }
+
+  // ── Autoplay radio (suggestions en fin de file) ─────────────────────────────
+
+  /// Étend la file avec des suggestions liées au dernier titre, pour enchaîner
+  /// sans coupure (façon radio). Si aucune suggestion → on laisse la boucle de
+  /// file (LoopMode.all) reprendre depuis le début. Nécessite `EXTERNAL_STREAM`
+  /// (sinon chaque suggestion externe déclencherait un import S3 lourd).
+  Future<void> _maybeExtendWithRadio() async {
+    if (!ApiConfig.externalStream || _radioBusy || _playlist == null) return;
+    final seed = state.currentTrack;
+    if (seed == null) return;
+    if (_radioFromId == seed.id) return; // déjà étendu depuis ce titre
+    _radioBusy = true;
+    _radioFromId = seed.id;
+    final token = _playToken;
+    try {
+      final suggestions = await _fetchRadio(seed);
+      if (token != _playToken || _playlist == null) return;
+
+      // Dédup contre ce qui est déjà dans la file.
+      final seen = {for (final t in _playerTracks) _radioKey(t)};
+      final fresh = <Track>[];
+      for (final t in suggestions) {
+        if (seen.add(_radioKey(t))) fresh.add(t);
+      }
+      if (fresh.isEmpty) return; // → fallback : boucle de file
+
+      // Résout (URLs de stream) puis insère à la suite, sans couper la lecture.
+      final resolved = <Track>[];
+      final sources = <AudioSource>[];
+      for (final t in fresh.take(10)) {
+        final r = await _resolveForQueue(t);
+        if (r == null || r.audioUrl.isEmpty) continue;
+        resolved.add(r);
+        sources.add(_audioSourceFor(r));
+      }
+      if (token != _playToken || _playlist == null || resolved.isEmpty) return;
+      _playerTracks = [..._playerTracks, ...resolved];
+      await _playlist!.addAll(sources);
+      state = state.copyWith(queue: [...state.queue, ...resolved]);
+      mkLog('Mkzik 📻 radio +${resolved.length} titres (seed "${seed.title}")');
+    } catch (e) {
+      mkLog('Mkzik 📻 radio erreur : $e');
+    } finally {
+      _radioBusy = false;
+    }
+  }
+
+  String _radioKey(Track t) => t.pageUrl.isNotEmpty ? t.pageUrl : t.id;
+
+  /// Récupère les suggestions pour le titre [seed] :
+  /// - externe non intégré → `related` sur sa plateforme d'origine (url connue) ;
+  /// - interne / déjà intégré (pas d'url externe) → on cherche une url YT+SC par
+  ///   titre+artiste, puis `related` sur chacune (mix).
+  Future<List<Track>> _fetchRadio(Track seed) async {
+    if (seed.needsImport && seed.pageUrl.isNotEmpty) {
+      switch (seed.extPlatform) {
+        case ExtPlatform.youtubeMusic:
+          return SuggestionService.youtubeRelated(seed.pageUrl);
+        case ExtPlatform.soundcloud:
+          return SuggestionService.soundcloudRelated(seed.pageUrl);
+        case ExtPlatform.other:
+          break;
+      }
+    }
+    // Interne / intégré : recherche d'une url de référence sur chaque plateforme.
+    final q = '${seed.title} ${seed.artist}'.trim();
+    if (q.isEmpty) return const [];
+    final seeds = await _searchSeedUrls(q);
+    final out = <Track>[];
+    if (seeds.yt != null) out.addAll(await SuggestionService.youtubeRelated(seeds.yt!));
+    if (seeds.sc != null) out.addAll(await SuggestionService.soundcloudRelated(seeds.sc!));
+    return out;
+  }
+
+  /// Cherche (recherche externe SSE) une 1ʳᵉ url YouTube et une 1ʳᵉ url SoundCloud
+  /// correspondant à [query]. S'arrête dès que les deux sont trouvées ou à `done`.
+  Future<({String? yt, String? sc})> _searchSeedUrls(String query) async {
+    String? yt, sc;
+    final deadline = DateTime.now().add(const Duration(seconds: 15));
+    try {
+      await for (final ev in TrackService.searchExternalStream(query)) {
+        for (final t in ev.tracks) {
+          if (t.pageUrl.isEmpty) continue;
+          if (yt == null && t.extPlatform == ExtPlatform.youtubeMusic) yt = t.pageUrl;
+          if (sc == null && t.extPlatform == ExtPlatform.soundcloud) sc = t.pageUrl;
+        }
+        if ((yt != null && sc != null) || ev.done || DateTime.now().isAfter(deadline)) break;
+      }
+    } catch (e) {
+      mkLog('Mkzik 📻 radio seed search erreur : $e');
+    }
+    return (yt: yt, sc: sc);
   }
 
   Future<void> togglePlayPause() async {

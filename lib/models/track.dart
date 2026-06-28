@@ -68,12 +68,20 @@ class Track {
     final authors = j['authors'] is List ? j['authors'] as List : const [];
     final uploaderRaw = j['uploader'];
     String artist = '';
+    // Symfony : authors[{username}] ; suggestions/search Python : authors[{name}],
+    // uploader (string) ou uploaders (liste de strings). On essaie dans cet ordre.
     if (authors.isNotEmpty && authors.first is Map) {
-      artist = (authors.first['username'] ?? '').toString();
-    } else if (uploaderRaw is List && uploaderRaw.isNotEmpty && uploaderRaw.first is Map) {
-      artist = (uploaderRaw.first['username'] ?? '').toString();
-    } else if (uploaderRaw is String) {
-      artist = uploaderRaw; // format Python (externe)
+      final a = authors.first as Map;
+      artist = (a['username'] ?? a['name'] ?? '').toString();
+    }
+    if (artist.isEmpty) {
+      if (uploaderRaw is List && uploaderRaw.isNotEmpty && uploaderRaw.first is Map) {
+        artist = (uploaderRaw.first['username'] ?? uploaderRaw.first['name'] ?? '').toString();
+      } else if (uploaderRaw is String) {
+        artist = uploaderRaw; // format Python (externe)
+      } else if (j['uploaders'] is List && (j['uploaders'] as List).isNotEmpty) {
+        artist = '${(j['uploaders'] as List).first}';
+      }
     }
 
     final rawId = j['id'];
