@@ -110,8 +110,11 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
     final screenH = MediaQuery.of(context).size.height;
     final dragT = (_dragOffset / screenH).clamp(0.0, 1.0);
 
-    // Mode paroles actif uniquement si la track en a (sinon on reste en léger).
-    final showLyrics = _showLyrics && track.hasLyrics;
+    // Bouton/mode LYRICS disponible si le flag serveur le confirme (interne) ou
+    // si la track est en flux externe : la route /lyrics?url= y est gratuite
+    // une fois le cache stream chaud, donc on tente plutôt que de masquer le bouton.
+    final canTryLyrics = track.hasLyrics || (track.source.isNotEmpty && track.pageUrl.isNotEmpty);
+    final showLyrics = _showLyrics && canTryLyrics;
 
     // Bloc titre + artiste, partagé entre le mode léger et le mode paroles.
     final Widget titleBlock = Padding(
@@ -302,7 +305,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                             isLiked: player.isLiked,
                             likes: track.likesLabel,
                             accent: accent,
-                            hasLyrics: track.hasLyrics,
+                            hasLyrics: canTryLyrics,
                             lyricsActive: showLyrics,
                             onLyrics: () => setState(() => _showLyrics = !_showLyrics),
                             onLike: notifier.toggleLike,
