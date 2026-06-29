@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/lyrics.dart';
+import '../models/track.dart';
 import '../services/lyrics_service.dart';
 
 /// Paroles par id de track BD (tracks intégrées Symfony).
@@ -7,8 +8,15 @@ final lyricsProvider = FutureProvider.family<Lyrics?, int>((ref, trackId) async 
   return LyricsService.fetch(trackId);
 });
 
-/// Paroles par URL de page (tracks en flux direct sans entrée BD).
-/// `GET {pythonUrl}lyrics?url=<pageUrl>` — résolu depuis le cache stream yt-dlp.
-final lyricsUrlProvider = FutureProvider.family<Lyrics?, String>((ref, pageUrl) async {
-  return LyricsService.fetchByUrl(pageUrl);
+/// Paroles d'une track en flux direct (sans entrée BD), résolues depuis le cache
+/// stream yt-dlp. On passe `artist`+`title` quand on les a → plus rapide/fiable.
+/// Keyé par Track (égalité fondée sur l'id) → un seul fetch par morceau.
+final lyricsUrlProvider = FutureProvider.family<Lyrics?, Track>((ref, track) async {
+  return LyricsService.fetchByUrl(track.pageUrl, artist: track.artist, title: track.title);
+});
+
+/// Disponibilité des paroles d'un flux direct via le header `X-Has-Lyrics`
+/// (sonde légère, sans télécharger l'audio). `null` = indéterminé.
+final streamHasLyricsProvider = FutureProvider.family<bool?, String>((ref, pageUrl) async {
+  return LyricsService.streamHasLyrics(pageUrl);
 });

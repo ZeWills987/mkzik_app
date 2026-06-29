@@ -110,10 +110,15 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
     final screenH = MediaQuery.of(context).size.height;
     final dragT = (_dragOffset / screenH).clamp(0.0, 1.0);
 
-    // Bouton/mode LYRICS disponible si le flag serveur le confirme (interne) ou
-    // si la track est en flux externe : la route /lyrics?url= y est gratuite
-    // une fois le cache stream chaud, donc on tente plutôt que de masquer le bouton.
-    final canTryLyrics = track.hasLyrics || (track.source.isNotEmpty && track.pageUrl.isNotEmpty);
+    // Bouton/mode LYRICS :
+    //  • interne → flag serveur `track.hasLyrics`.
+    //  • externe → header `X-Has-Lyrics` du flux (sonde légère). On reste optimiste
+    //    tant que la sonde n'a pas répondu (null) et on ne masque que sur un 0 franc.
+    final isExternal = track.source.isNotEmpty && track.pageUrl.isNotEmpty;
+    final streamHasLyrics =
+        isExternal ? ref.watch(streamHasLyricsProvider(track.pageUrl)).valueOrNull : null;
+    final canTryLyrics =
+        track.hasLyrics || (isExternal && (streamHasLyrics ?? true));
     final showLyrics = _showLyrics && canTryLyrics;
 
     // Bloc titre + artiste, partagé entre le mode léger et le mode paroles.
@@ -418,8 +423,8 @@ class _CurrentLyricsLine extends ConsumerWidget {
       // Track interne → route Symfony par id
       lyrics = ref.watch(lyricsProvider(track.apiId!)).valueOrNull;
     } else if (track.pageUrl.isNotEmpty) {
-      // Track externe en flux direct → route Python par URL de page
-      lyrics = ref.watch(lyricsUrlProvider(track.pageUrl)).valueOrNull;
+      // Track externe en flux direct → route Python (url + artist/title)
+      lyrics = ref.watch(lyricsUrlProvider(track)).valueOrNull;
     } else {
       return const SizedBox.shrink();
     }

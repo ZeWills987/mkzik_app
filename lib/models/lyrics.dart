@@ -10,7 +10,9 @@ class LyricLine {
       );
 }
 
-/// Paroles complètes d'une track (`GET /api/tracks/{id}/lyrics`).
+/// Paroles complètes d'une track. Deux backends, deux formats tolérés :
+///   • Symfony  `GET api/tracks/{id}/lyrics` → { lyrics, lyrics_synced, lyrics_lines }
+///   • Python   `GET {pythonUrl}lyrics?url=` → { found, synced, source, lyrics, lines }
 /// [synced] vrai → [lines] exploitable (karaoké) ; sinon on affiche [text] brut.
 class Lyrics {
   final String text;
@@ -23,10 +25,13 @@ class Lyrics {
   bool get hasSyncedLines => synced && lines.isNotEmpty;
 
   factory Lyrics.fromJson(Map<String, dynamic> j) {
-    final rawLines = j['lyrics_lines'];
+    // Python renvoie `found: false` quand rien n'est trouvé → paroles vides.
+    if (j['found'] == false) return const Lyrics(text: '', synced: false);
+    // Clés selon le backend : `lines`/`synced` (Python) ou `lyrics_lines`/`lyrics_synced` (Symfony).
+    final rawLines = j['lines'] ?? j['lyrics_lines'];
     return Lyrics(
       text: (j['lyrics'] ?? '').toString(),
-      synced: j['lyrics_synced'] == true,
+      synced: j['synced'] == true || j['lyrics_synced'] == true,
       lines: rawLines is List
           ? rawLines.whereType<Map<String, dynamic>>().map(LyricLine.fromJson).toList()
           : const [],
