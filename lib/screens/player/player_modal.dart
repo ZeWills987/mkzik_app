@@ -410,11 +410,12 @@ class _CurrentLyricsLine extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final id = track.apiId;
     final Lyrics? lyrics;
-    if (id != null) {
-      lyrics = ref.watch(lyricsProvider(id)).valueOrNull;
+    if (track.source.isEmpty && track.apiId != null) {
+      // Track interne → route Symfony par id
+      lyrics = ref.watch(lyricsProvider(track.apiId!)).valueOrNull;
     } else if (track.pageUrl.isNotEmpty) {
+      // Track externe en flux direct → route Python par URL de page
       lyrics = ref.watch(lyricsUrlProvider(track.pageUrl)).valueOrNull;
     } else {
       return const SizedBox.shrink();
