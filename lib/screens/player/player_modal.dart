@@ -17,6 +17,7 @@ import '../profile/profile_screen.dart';
 import 'widgets/player_scene_painter.dart';
 import 'widgets/player_waveform.dart';
 import 'widgets/player_controls.dart';
+import '../../providers/lyrics_provider.dart';
 import 'widgets/player_lyrics_view.dart';
 import 'widgets/lyrics_fullscreen.dart';
 
@@ -253,6 +254,8 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
 
                   const SizedBox(height: 26),
                   titleBlock,
+                  const SizedBox(height: 10),
+                  _CurrentLyricsLine(track: track, accentLight: accentLight),
                   const Spacer(flex: 3),
                 ] else ...[
                   // Mode paroles : titre compact en haut, paroles qui remplissent
@@ -388,6 +391,63 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
           ),
         ],
       ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Ligne de lyrics courante (mode normal, sous le titre) ────────────────────
+
+class _CurrentLyricsLine extends ConsumerWidget {
+  final Track track;
+  final Color accentLight;
+  const _CurrentLyricsLine({required this.track, required this.accentLight});
+
+  static const _leadMs = 200;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final id = track.apiId;
+    if (id == null) return const SizedBox.shrink();
+
+    final lyrics = ref.watch(lyricsProvider(id)).valueOrNull;
+    if (lyrics == null || !lyrics.hasSyncedLines) return const SizedBox.shrink();
+
+    final posMs = ref.watch(playerProvider.select((s) => s.position)).inMilliseconds;
+
+    int active = -1;
+    for (var i = 0; i < lyrics.lines.length; i++) {
+      if (lyrics.lines[i].timeMs <= posMs + _leadMs) {
+        active = i;
+      } else {
+        break;
+      }
+    }
+
+    if (active < 0) return const SizedBox.shrink();
+    final text = lyrics.lines[active].text.trim();
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: ShaderMask(
+          key: ValueKey(active),
+          shaderCallback: (bounds) => LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [Colors.white, accentLight, Colors.white],
+          ).createShader(bounds),
+          blendMode: BlendMode.srcIn,
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14, height: 1.4, fontWeight: FontWeight.w600, color: Colors.white),
           ),
         ),
       ),
