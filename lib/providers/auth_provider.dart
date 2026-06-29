@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/api_config.dart';
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/token_storage.dart';
 
@@ -40,7 +42,16 @@ class AuthState {
 
 class AuthNotifier extends StateNotifier<AuthState> {
   AuthNotifier() : super(const AuthState()) {
+    // Session expirée (401 sur une requête authentifiée) → déconnexion auto.
+    ApiClient.onUnauthorized = _onUnauthorized;
     _bootstrap();
+  }
+
+  // Déconnecte sur token rejeté, seulement si on se croyait connecté
+  // (évite les déconnexions/boucles parasites pendant le login ou hors session).
+  void _onUnauthorized() {
+    if (state.status != AuthStatus.authenticated) return;
+    unawaited(logout());
   }
 
   // Au démarrage : charge le token persistant et restaure la session

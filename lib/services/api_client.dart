@@ -34,6 +34,11 @@ class Err<T> extends ApiResult<T> {
 class ApiClient {
   static const _timeout = Duration(seconds: 12);
 
+  /// Déclenché quand une requête **authentifiée** se voit refuser par un 401
+  /// (token expiré/invalide) → la couche auth s'y abonne pour déconnecter
+  /// l'utilisateur au lieu de le laisser coincé. Branché par `AuthNotifier`.
+  static void Function()? onUnauthorized;
+
   static Map<String, String> _headers(bool auth) => {
         'Content-Type': 'application/json',
         if (auth && (ApiConfig.token?.isNotEmpty ?? false)) 'Authorization': 'Bearer ${ApiConfig.token}',
@@ -76,7 +81,7 @@ class ApiClient {
       }
           .timeout(t);
 
-      return _handle(method, uri, res);
+      return _handle(method, uri, res, auth: auth);
     } on TimeoutException {
       _log(method, uri, 'délai dépassé');
       return const Err('Délai dépassé, réessaie', statusCode: 408);
@@ -86,13 +91,16 @@ class ApiClient {
     }
   }
 
-  static ApiResult<dynamic> _handle(String method, Uri uri, http.Response res) {
+  static ApiResult<dynamic> _handle(String method, Uri uri, http.Response res, {required bool auth}) {
     final decoded = _tryDecode(res.body);
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return Ok(decoded);
     }
     final message = _extractError(decoded) ?? 'Erreur ${res.statusCode}';
     _log(method, uri, 'HTTP ${res.statusCode} → $message');
+    // Token rejeté sur une requête authentifiée → session expirée : on prévient
+    // la couche auth pour déconnecter (les appels publics, auth:false, sont ignorés).
+    if (auth && res.statusCode == 401) onUnauthorized?.call();
     return Err(message, statusCode: res.statusCode);
   }
 

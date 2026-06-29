@@ -20,13 +20,23 @@ class DownloadService {
     void Function(String message)? onError,
   }) async {
     try {
+      // Auth : le token passe désormais dans l'en-tête `Authorization` (standard,
+      // moins exposé que dans le corps qui peut finir dans les logs serveur).
+      // ⚠️ Le token reste aussi dans le body en repli le temps que le service
+      // Python lise l'en-tête ; à supprimer du body une fois le backend à jour.
+      final token = ApiConfig.token;
+      final authHeaders = <String, String>{
+        'Content-Type': 'application/json',
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      };
+
       // 1) Démarrage du téléchargement
       final startUri = Uri.parse('${ApiConfig.pythonUrl}download');
       mkLog('Mkzik ⬇ download start → $startUri  (url=${track.pageUrl})');
       final startRes = await http
           .post(startUri,
-              headers: const {'Content-Type': 'application/json'},
-              body: jsonEncode({'url': track.pageUrl, 'token': ApiConfig.token}))
+              headers: authHeaders,
+              body: jsonEncode({'url': track.pageUrl, 'token': token}))
           .timeout(const Duration(seconds: 15));
 
       if (startRes.statusCode != 200) {
@@ -47,6 +57,9 @@ class DownloadService {
       final streamUri = Uri.parse('${ApiConfig.pythonUrl}download/$downloadId/stream');
       final request = http.Request('GET', streamUri)
         ..headers['Accept'] = 'text/event-stream';
+      if (token != null && token.isNotEmpty) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
       final client = http.Client();
       final response = await client.send(request);
 

@@ -18,6 +18,7 @@ import 'widgets/player_scene_painter.dart';
 import 'widgets/player_waveform.dart';
 import 'widgets/player_controls.dart';
 import 'widgets/player_lyrics_view.dart';
+import 'widgets/lyrics_fullscreen.dart';
 
 /// Player modal plein écran.
 ///
@@ -260,7 +261,26 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                   titleBlock,
                   const SizedBox(height: 12),
                   Expanded(
-                    child: LyricsView(track: track, accent: accent, accentLight: accentLight),
+                    child: Stack(
+                      children: [
+                        LyricsView(track: track, accent: accent, accentLight: accentLight),
+                        // Passage en plein écran immersif
+                        Positioned(
+                          top: 0,
+                          right: 4,
+                          child: IconButton(
+                            tooltip: 'Plein écran',
+                            onPressed: () => LyricsFullscreen.open(
+                              context,
+                              track: track,
+                              accent: accent,
+                              accentLight: accentLight,
+                            ),
+                            icon: const Icon(Icons.open_in_full, color: Colors.white54, size: 20),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 8),
                 ],
