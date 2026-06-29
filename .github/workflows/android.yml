@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historique complet + tags, requis pour les notes de version
 
       # .env est déclaré comme asset mais pas committé (secret/local).
       # On le recrée depuis le secret ENV_FILE, sinon vide (URLs par défaut).
@@ -57,10 +59,22 @@ jobs:
       - name: Build APK (release)
         run: flutter build apk --release --build-number=${{ github.run_number }}
 
+      # Notes de version = commits feat/fix/style/refactor depuis le tag précédent.
+      - name: Générer les notes de version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | head -1 | sed -E 's/version: *([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          {
+            echo "# Mkzik Android v$VERSION (build ${{ github.run_number }})"
+            echo
+            bash scripts/release_notes.sh
+          } > release_notes.md
+          cat release_notes.md
+
       # Tag fixe "android-latest" → l'URL de l'APK ne change jamais.
       - name: Publier l'APK dans une Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-latest
           name: "Mkzik Android (dernier build)"
+          body_path: release_notes.md
           files: build/app/outputs/flutter-apk/app-release.apk

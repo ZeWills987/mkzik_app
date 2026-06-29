@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historique complet + tags, requis pour les notes de version
 
       # .env est déclaré comme asset mais pas committé (secret/local).
       # On le recrée depuis le secret ENV_FILE, sinon vide (URLs par défaut).
@@ -103,10 +105,22 @@ jobs:
           cp -R Runner.app Payload/
           zip -qq -r "$GITHUB_WORKSPACE/mkzik.ipa" Payload
 
+      # Notes de version = commits feat/fix/style/refactor depuis le tag précédent.
+      - name: Générer les notes de version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | head -1 | sed -E 's/version: *([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          {
+            echo "# Mkzik iOS v$VERSION (build ${{ github.run_number }})"
+            echo
+            bash scripts/release_notes.sh
+          } > release_notes.md
+          cat release_notes.md
+
       # Tag fixe "ios-latest" → l'URL de l'IPA ne change jamais.
       - name: Publier l'IPA dans une Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ios-latest
           name: "Mkzik iOS (dernier build)"
+          body_path: release_notes.md
           files: mkzik.ipa
