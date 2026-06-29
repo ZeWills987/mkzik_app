@@ -24,11 +24,10 @@ class ApiConfig {
   /// masquées par de faux contenus. Mettre DEMO=true dans le .env pour l'activer.
   static bool get useDemoData => (dotenv.maybeGet('DEMO') ?? 'false').toLowerCase() == 'true';
 
-  /// Mode de lecture des **externes non intégrés** (YouTube/SoundCloud) :
-  ///   • `false` (défaut) → import S3 (`POST /download` + SSE) puis URL signée.
-  ///   • `true`           → streaming **temps réel** via `GET /stream?url=`
-  ///                        (yt-dlp, aucun upload S3, aucune entrée en BD).
-  /// Bascule avec `EXTERNAL_STREAM=true` dans le `.env`.
+  /// Active la **radio automatique** (extension de file avec des suggestions en
+  /// fin de lecture). La lecture des externes se fait **toujours** en stream temps
+  /// réel via `GET /stream?url=` — l'import S3 n'arrive que via le bouton explicite.
+  /// `EXTERNAL_STREAM=true` dans le `.env` pour activer l'autoplay radio.
   static bool get externalStream => (dotenv.maybeGet('EXTERNAL_STREAM') ?? 'false').toLowerCase() == 'true';
 
   /// URL de lecture temps réel d'un externe à partir de sa page d'origine.

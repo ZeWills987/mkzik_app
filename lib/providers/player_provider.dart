@@ -268,11 +268,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       state = state.copyWith(queue: q, currentTrack: current, duration: current.duration);
     }
 
-    // Mode stream temps réel : spinner « Chargement du flux… » pendant que yt-dlp
-    // résout l'audio et que la mise en mémoire tampon se fait (setAudioSource).
-    // (En mode import S3, la progression est déjà affichée par _resolvePlayable.)
+    // Spinner « Chargement du flux… » pendant que yt-dlp résout l'audio et que
+    // la mise en mémoire tampon se fait (setAudioSource). Un externe avec une URL
+    // de page se lit toujours en stream temps réel (jamais d'import auto au play).
     final importNotifier = _ref.read(importProvider.notifier);
-    final streamJobId = (track.needsImport && ApiConfig.externalStream)
+    final streamJobId = (track.needsImport && track.pageUrl.isNotEmpty)
         ? importNotifier.startStream(track)
         : null;
 
@@ -359,22 +359,17 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   /// Rend un track réellement jouable (cf. React `handleClicTrack`) :
-  /// 1. externe non intégré (`needsImport`) → import via Python, on récupère le track intégré
-  ///    (ou, si `EXTERNAL_STREAM=true`, lecture temps réel via `GET /stream?url=` sans import)
+  /// 1. externe non intégré (`needsImport`) → **lecture en stream temps réel**
+  ///    (`GET /stream?url=`), jamais d'import S3 automatique. L'import dans Mkzik
+  ///    reste une action explicite (bouton "Importer"), pas un effet de bord du play.
   /// 2. si pas d'URL audio directe (http) → URL signée via `api/tracks/{id}/audio`
   Future<Track?> _resolvePlayable(Track track) async {
     var t = track;
 
-    // 1) Externes non intégrés
+    // 1) Externes non intégrés → stream direct depuis l'URL de page (pas d'import).
     if (t.needsImport) {
-      // Mode stream temps réel : on joue directement depuis le flux yt-dlp, sans import S3.
-      if (ApiConfig.externalStream && t.pageUrl.isNotEmpty) {
-        return t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
-      }
-      // Mode S3 : import (avec notification de progression) puis on récupère le track intégré.
-      final imported = await _ref.read(importProvider.notifier).startAndWait(t);
-      if (imported == null) return null;
-      t = imported;
+      if (t.pageUrl.isEmpty) return null; // injouable en stream sans URL d'origine
+      return t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
     }
 
     // 2) URL signée si l'audio n'est pas directement jouable
@@ -389,17 +384,15 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   /// Résolution légère pour les autres titres de la file (préchargement) : signe
-  /// l'URL des internes mais n'importe PAS les externes. Renvoie null pour les
-  /// titres non jouables sans import → ils sont exclus de la playlist native.
-  /// En mode `EXTERNAL_STREAM=true`, les externes deviennent jouables sans import
-  /// (simple URL de flux), donc on les garde dans la file.
+  /// l'URL des internes et donne aux externes leur URL de flux temps réel (jamais
+  /// d'import). Renvoie null pour les titres injouables → exclus de la playlist.
   Future<Track?> _resolveForQueue(Track t) async {
     if (t.hasPlayableUrl) return t;
     if (t.needsImport) {
-      if (ApiConfig.externalStream && t.pageUrl.isNotEmpty) {
+      if (t.pageUrl.isNotEmpty) {
         return t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
       }
-      return null; // mode S3 : pas d'import au préchargement
+      return null; // externe sans URL d'origine → injouable en stream
     }
     if (t.apiId != null) {
       final signed = await TrackService.getSignedAudioUrl(t.apiId!);
@@ -412,8 +405,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   /// Étend la file avec des suggestions liées au dernier titre, pour enchaîner
   /// sans coupure (façon radio). Si aucune suggestion → on laisse la boucle de
-  /// file (LoopMode.all) reprendre depuis le début. Nécessite `EXTERNAL_STREAM`
-  /// (sinon chaque suggestion externe déclencherait un import S3 lourd).
+  /// file (LoopMode.all) reprendre depuis le début. Gardé derrière `EXTERNAL_STREAM`
+  /// car c'est l'autoplay radio que ce flag active (les suggestions sont streamées).
   Future<void> _maybeExtendWithRadio() async {
     if (!ApiConfig.externalStream || _radioBusy || _playlist == null) return;
     final seed = state.currentTrack;
