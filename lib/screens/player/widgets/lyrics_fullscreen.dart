@@ -1,17 +1,14 @@
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart' hide RepeatMode;
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../models/track.dart';
-import '../../../providers/player_provider.dart';
 import '../../../utils/media.dart';
 import 'player_lyrics_view.dart';
-import 'player_waveform.dart';
 
 /// Paroles en plein écran immersif : les lyrics occupent tout l'écran, avec un
 /// fond flouté (pochette), un titre discret et des contrôles minimaux en bas.
 /// La ligne active suit la lecture en temps réel ; tap sur une ligne → seek.
-class LyricsFullscreen extends ConsumerWidget {
+class LyricsFullscreen extends StatelessWidget {
   final Track track;
   final Color accent;
   final Color accentLight;
@@ -44,9 +41,7 @@ class LyricsFullscreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final player = ref.watch(playerProvider);
-    final notifier = ref.read(playerProvider.notifier);
+  Widget build(BuildContext context) {
     final coverUrl = mediaUrl(track.coverUrl);
 
     return Scaffold(
@@ -120,52 +115,7 @@ class LyricsFullscreen extends ConsumerWidget {
                   child: LyricsView(track: track, accent: accent, accentLight: accentLight),
                 ),
 
-                // Mini-contrôles : waveform + temps + play/pause
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-                  child: Column(
-                    children: [
-                      PlayerWaveform(
-                        progress: player.progress,
-                        duration: player.duration,
-                        accent: accentLight,
-                        seed: track.id.hashCode,
-                        onSeek: notifier.seekTo,
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Text(player.positionFormatted,
-                              style: const TextStyle(color: Colors.white60, fontSize: 11)),
-                          const Spacer(),
-                          GestureDetector(
-                            onTap: notifier.togglePlayPause,
-                            child: Container(
-                              width: 52,
-                              height: 52,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(colors: [accentLight, accent]),
-                              ),
-                              child: Icon(
-                                player.isPlaying ? Icons.pause : Icons.play_arrow,
-                                color: Colors.white,
-                                size: 28,
-                              ),
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            player.duration == Duration.zero
-                                ? track.durationFormatted
-                                : player.durationFormatted,
-                            style: const TextStyle(color: Colors.white60, fontSize: 11),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+                const SizedBox(height: 16),
               ],
             ),
           ),
