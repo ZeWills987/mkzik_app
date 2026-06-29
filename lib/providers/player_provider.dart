@@ -106,6 +106,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   bool _radioBusy = false; // une extension est déjà en cours
   String? _radioFromId; // id du titre depuis lequel on a déjà étendu (anti-doublon)
 
+  // Verrou : bloque _onCurrentIndexChanged pendant les manipulations de playlist
+  // (insertions d'hydratation, reconstruction radio) pour éviter les faux "track changed".
+  bool _suppressIndexChange = false;
+
   PlayerNotifier(this._ref) : super(const PlayerState()) {
     _initAudioSession();
 
@@ -171,6 +175,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   // Resync quand le moteur change d'index (y compris via les boutons de la notif).
   void _onCurrentIndexChanged(int? i) {
+    if (_suppressIndexChange) return;
     if (i == null || i < 0 || i >= _playerTracks.length) return;
     final t = _playerTracks[i];
     // Même titre (l'index a juste été décalé par une insertion d'hydratation) →
@@ -331,12 +336,26 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
     if (before.isEmpty && after.isEmpty) return;
 
-    // Met à jour la table AVANT les insertions pour que _onCurrentIndexChanged
-    // mappe correctement le nouvel index du titre courant.
-    _playerTracks = [...before, current, ...after];
-    // Insère les "avant" en tête (décale l'index courant), puis les "après".
-    if (before.isNotEmpty) await _playlist!.insertAll(0, beforeSources);
-    if (after.isNotEmpty) await _playlist!.addAll(afterSources);
+    // Met à jour _playerTracks APRÈS les insertions pour que _onCurrentIndexChanged
+    // ne mappe jamais un index natif en transition sur le mauvais titre.
+    // Le verrou supprime les événements d'index pendant la manipulation.
+    _suppressIndexChange = true;
+    try {
+      if (before.isNotEmpty) await _playlist!.insertAll(0, beforeSources);
+      if (after.isNotEmpty) await _playlist!.addAll(afterSources);
+      _playerTracks = [...before, current, ...after];
+    } finally {
+      _suppressIndexChange = false;
+      // Resync : l'index natif a pu changer (insertion de `before` en tête).
+      final ni = _audio.currentIndex;
+      if (ni != null && ni >= 0 && ni < _playerTracks.length) {
+        final t = _playerTracks[ni];
+        final qIdx = state.queue.indexWhere((x) => x.id == t.id);
+        if (qIdx >= 0 && qIdx != state.currentIndex) {
+          state = state.copyWith(currentIndex: qIdx);
+        }
+      }
+    }
   }
 
   /// Rend un track réellement jouable (cf. React `handleClicTrack`) :
@@ -507,14 +526,30 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       }
       if (resolved.isEmpty || _playlist == null) return false;
 
-      // Retire ce qui suit le titre courant, puis enchaîne la radio.
-      if (pIdx + 1 < _playerTracks.length) {
-        await _playlist!.removeRange(pIdx + 1, _playerTracks.length);
+      // Reconstruction : [seed, R1, R2, …] — on retire tout ce qui précède le
+      // courant pour que LoopMode.all ne reboucle jamais sur l'ancienne playlist.
+      final seedTrack = _playerTracks[pIdx];
+      _suppressIndexChange = true;
+      try {
+        // 1) Retire les titres APRÈS le courant
+        if (pIdx + 1 < _playerTracks.length) {
+          await _playlist!.removeRange(pIdx + 1, _playerTracks.length);
+        }
+        // 2) Retire les titres AVANT le courant (courant passe en index 0)
+        if (pIdx > 0) {
+          await _playlist!.removeRange(0, pIdx);
+        }
+        // 3) Ajoute les suggestions radio
+        await _playlist!.addAll(sources);
+        _playerTracks = [seedTrack, ...resolved];
+      } finally {
+        _suppressIndexChange = false;
       }
-      await _playlist!.addAll(sources);
-      _playerTracks = [..._playerTracks.sublist(0, pIdx + 1), ...resolved];
-      final keep = state.queue.sublist(0, state.currentIndex + 1);
-      state = state.copyWith(queue: [...keep, ...resolved]);
+
+      state = state.copyWith(
+        queue: [seed, ...resolved],
+        currentIndex: 0,
+      );
       _radioFromId = null; // autorise l'extension auto quand on atteindra la fin
       mkLog('Mkzik 📻 mode radio : ${resolved.length} titres (seed "${seed.title}")');
       return true;
