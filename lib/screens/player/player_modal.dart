@@ -7,15 +7,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/track.dart';
 import '../../models/track_visuals.dart';
-import '../../models/lyrics.dart';
 import '../../providers/player_provider.dart';
-import '../../providers/lyrics_provider.dart';
 import '../../providers/notice_provider.dart';
 import '../../widgets/current_list_sheet.dart';
 import '../../widgets/track_cover.dart';
 import '../../widgets/track_actions.dart';
 import '../../utils/media.dart';
 import '../profile/profile_screen.dart';
+import 'widgets/player_scene_painter.dart';
+import 'widgets/player_waveform.dart';
+import 'widgets/player_controls.dart';
+import 'widgets/player_lyrics_view.dart';
 
 /// Player modal plein écran.
 ///
@@ -180,7 +182,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
             ),
             Positioned.fill(
               child: CustomPaint(
-                painter: _ScenePainter(scene: track.scene, accent: accent),
+                painter: ScenePainter(scene: track.scene, accent: accent),
               ),
             ),
           ],
@@ -222,7 +224,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
             child: Column(
               children: [
                 // Poignée + bouton fermer
-                _TopBar(
+                PlayerTopBar(
                   onClose: () => Navigator.of(context).maybePop(),
                   onQueue: () => showCurrentList(context),
                 ),
@@ -258,7 +260,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                   titleBlock,
                   const SizedBox(height: 12),
                   Expanded(
-                    child: _LyricsView(track: track, accent: accent, accentLight: accentLight),
+                    child: LyricsView(track: track, accent: accent, accentLight: accentLight),
                   ),
                   const SizedBox(height: 8),
                 ],
@@ -272,7 +274,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                       child: Column(
                         children: [
                           // Barre d'actions : LIKE / LYRICS / SHARE / MORE
-                          _ActionsRow(
+                          PlayerActionsRow(
                             isLiked: player.isLiked,
                             likes: track.likesLabel,
                             accent: accent,
@@ -289,7 +291,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                           ),
                           const SizedBox(height: 18),
                           // Waveform + temps
-                          _Waveform(
+                          PlayerWaveform(
                             progress: player.progress,
                             duration: player.duration,
                             accent: accentLight,
@@ -324,19 +326,19 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                                 ),
                               ),
                               const SizedBox(width: 22),
-                              _ControlButton(
+                              PlayerControlButton(
                                 icon: Icons.skip_previous,
                                 enabled: player.canSkip,
                                 onTap: notifier.previous,
                               ),
                               const SizedBox(width: 20),
-                              _PlayButton(
+                              PlayerPlayButton(
                                 isPlaying: player.isPlaying,
                                 colors: [accentLight, accent],
                                 onTap: notifier.togglePlayPause,
                               ),
                               const SizedBox(width: 20),
-                              _ControlButton(
+                              PlayerControlButton(
                                 icon: Icons.skip_next,
                                 enabled: player.canSkip,
                                 onTap: notifier.next,
@@ -373,195 +375,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
   }
 }
 
-// ── Barre supérieure : poignée + fermeture ───────────────────────────────────
-
-class _TopBar extends StatelessWidget {
-  final VoidCallback onClose;
-  final VoidCallback onQueue;
-  const _TopBar({required this.onClose, required this.onQueue});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Column(
-        children: [
-          // Poignée de glissement
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.white30,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          Row(
-            children: [
-              IconButton(
-                onPressed: onClose,
-                icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white70, size: 28),
-              ),
-              const Spacer(),
-              // Ouvre la file d'attente (titres à venir)
-              IconButton(
-                onPressed: onQueue,
-                icon: const Icon(Icons.queue_music, color: Colors.white70, size: 24),
-                tooltip: 'File d\'attente',
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Barre d'actions ───────────────────────────────────────────────────────────
-
-class _ActionsRow extends StatelessWidget {
-  final bool isLiked;
-  final String likes;
-  final Color accent;
-  final bool hasLyrics;
-  final bool lyricsActive;
-  final VoidCallback onLyrics;
-  final VoidCallback onLike;
-  final VoidCallback onShare;
-  final VoidCallback onMore;
-
-  const _ActionsRow({
-    required this.isLiked,
-    required this.likes,
-    required this.accent,
-    required this.hasLyrics,
-    required this.lyricsActive,
-    required this.onLyrics,
-    required this.onLike,
-    required this.onShare,
-    required this.onMore,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _ActionItem(
-          icon: isLiked ? Icons.favorite : Icons.favorite_border,
-          label: 'LIKE',
-          sublabel: likes,
-          color: isLiked ? accent : Colors.white,
-          onTap: onLike,
-        ),
-        // LYRICS : actif → accent ; pas de paroles → grisé/inerte.
-        _ActionItem(
-          icon: Icons.mic_none,
-          label: 'LYRICS',
-          color: !hasLyrics ? Colors.white24 : (lyricsActive ? accent : Colors.white),
-          onTap: hasLyrics ? onLyrics : () {},
-        ),
-        _ActionItem(icon: Icons.ios_share, label: 'SHARE', onTap: onShare),
-        _ActionItem(icon: Icons.more_horiz, label: 'MORE', onTap: onMore),
-      ],
-    );
-  }
-}
-
-class _ActionItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String? sublabel;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _ActionItem({
-    required this.icon,
-    required this.label,
-    this.sublabel,
-    this.color = Colors.white,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(height: 6),
-          Text(label,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5)),
-          if (sublabel != null) ...[
-            const SizedBox(height: 2),
-            Text(sublabel!, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w700)),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-// ── Boutons de contrôle ───────────────────────────────────────────────────────
-
-class _ControlButton extends StatelessWidget {
-  final IconData icon;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  const _ControlButton({required this.icon, required this.enabled, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: enabled ? onTap : null,
-      child: Icon(icon, color: enabled ? Colors.white : Colors.white24, size: 34),
-    );
-  }
-}
-
-class _PlayButton extends StatelessWidget {
-  final bool isPlaying;
-  final List<Color> colors;
-  final VoidCallback onTap;
-
-  const _PlayButton({required this.isPlaying, required this.colors, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 74,
-        height: 74,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: colors,
-          ),
-          boxShadow: [
-            BoxShadow(color: colors.last.withValues(alpha: 0.6), blurRadius: 24, spreadRadius: 2),
-          ],
-        ),
-        child: Icon(
-          isPlaying ? Icons.pause : Icons.play_arrow,
-          color: Colors.white,
-          size: 38,
-        ),
-      ),
-    );
-  }
-}
-
-// ── Texte avec dégradé ────────────────────────────────────────────────────────
+// ── Texte avec dégradé (titre du morceau) ────────────────────────────────────
 
 class _GradientText extends StatelessWidget {
   final String text;
@@ -583,239 +397,6 @@ class _GradientText extends StatelessWidget {
       child: Text(text, textAlign: textAlign, style: style.copyWith(color: Colors.white)),
     );
   }
-}
-
-// ── Waveform interactive (tap + scrub au glissement) ─────────────────────────
-
-class _Waveform extends StatefulWidget {
-  final double progress;
-  final Duration duration;
-  final Color accent;
-  final int seed;
-  final ValueChanged<Duration> onSeek;
-
-  const _Waveform({
-    required this.progress,
-    required this.duration,
-    required this.accent,
-    required this.seed,
-    required this.onSeek,
-  });
-
-  @override
-  State<_Waveform> createState() => _WaveformState();
-}
-
-class _WaveformState extends State<_Waveform> {
-  // Position visée pendant le glissement (null = pas de scrub en cours)
-  double? _dragRatio;
-
-  void _seekAt(double dx, double width) {
-    final ratio = (dx / width).clamp(0.0, 1.0);
-    setState(() => _dragRatio = ratio);
-    if (widget.duration > Duration.zero) {
-      widget.onSeek(widget.duration * ratio);
-    }
-  }
-
-  void _endScrub() => setState(() => _dragRatio = null);
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          // Tap simple
-          onTapDown: (d) => _seekAt(d.localPosition.dx, w),
-          onTapUp: (_) => _endScrub(),
-          onTapCancel: _endScrub,
-          // Glissement (maintien) horizontal → scrub
-          onHorizontalDragStart: (d) => _seekAt(d.localPosition.dx, w),
-          onHorizontalDragUpdate: (d) => _seekAt(d.localPosition.dx, w),
-          onHorizontalDragEnd: (_) => _endScrub(),
-          onHorizontalDragCancel: _endScrub,
-          child: SizedBox(
-            height: 48,
-            width: double.infinity,
-            child: CustomPaint(
-              painter: _WaveformPainter(
-                // Pendant le scrub on suit le doigt, sinon la lecture
-                progress: _dragRatio ?? widget.progress,
-                accent: widget.accent,
-                seed: widget.seed,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-// ── CustomPainter : waveform ──────────────────────────────────────────────────
-
-class _WaveformPainter extends CustomPainter {
-  final double progress;
-  final Color accent;
-  final int seed;
-
-  _WaveformPainter({required this.progress, required this.accent, required this.seed});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rnd = math.Random(seed);
-    const barW = 3.0;
-    const gap = 3.0;
-    final count = (size.width / (barW + gap)).floor();
-    final mid = size.height / 2;
-    final playedX = size.width * progress;
-
-    final paintPlayed = Paint()..color = accent;
-    final paintUnplayed = Paint()..color = accent.withValues(alpha: 0.25);
-
-    for (var i = 0; i < count; i++) {
-      final x = i * (barW + gap);
-      // Hauteur pseudo-aléatoire lissée façon onde
-      final base = 0.3 + 0.7 * (0.5 + 0.5 * math.sin(i * 0.5 + seed % 7));
-      final noise = rnd.nextDouble() * 0.5;
-      final h = (size.height * 0.9) * ((base + noise) / 1.5).clamp(0.1, 1.0);
-      final rect = RRect.fromRectAndRadius(
-        Rect.fromCenter(center: Offset(x + barW / 2, mid), width: barW, height: h),
-        const Radius.circular(2),
-      );
-      canvas.drawRRect(rect, x <= playedX ? paintPlayed : paintUnplayed);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_WaveformPainter old) =>
-      old.progress != progress || old.accent != accent;
-}
-
-// ── CustomPainter : décor (motif losange + scène) ─────────────────────────────
-
-class _ScenePainter extends CustomPainter {
-  final SceneType scene;
-  final Color accent;
-
-  _ScenePainter({required this.scene, required this.accent});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    _paintDiamondPattern(canvas, size);
-    switch (scene) {
-      case SceneType.pyramid:
-        _paintPyramid(canvas, size);
-      case SceneType.city:
-        _paintCity(canvas, size, withStars: false);
-      case SceneType.stars:
-        _paintCity(canvas, size, withStars: true);
-    }
-  }
-
-  // Trame de losanges très subtile sur tout le fond
-  void _paintDiamondPattern(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.025)
-      ..strokeWidth = 0.6
-      ..style = PaintingStyle.stroke;
-    const step = 34.0;
-    for (double y = 0; y < size.height; y += step) {
-      for (double x = 0; x < size.width + step; x += step) {
-        final path = Path()
-          ..moveTo(x, y + step / 2)
-          ..lineTo(x + step / 2, y)
-          ..lineTo(x + step, y + step / 2)
-          ..lineTo(x + step / 2, y + step)
-          ..close();
-        canvas.drawPath(path, paint);
-      }
-    }
-  }
-
-  // Lignes de perspective convergentes (ambiance "After Dark")
-  void _paintPyramid(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = accent.withValues(alpha: 0.35)
-      ..strokeWidth = 1
-      ..style = PaintingStyle.stroke;
-    final apex = Offset(size.width / 2, size.height * 0.42);
-    final baseY = size.height * 0.75;
-    // Ligne d'horizon
-    canvas.drawLine(Offset(0, apex.dy), Offset(size.width, apex.dy), paint..color = accent.withValues(alpha: 0.2));
-    // Faisceau de lignes vers le bas
-    final p2 = Paint()
-      ..color = accent.withValues(alpha: 0.3)
-      ..strokeWidth = 1;
-    for (var i = -3; i <= 3; i++) {
-      final targetX = size.width / 2 + i * (size.width / 5);
-      canvas.drawLine(apex, Offset(targetX, baseY), p2);
-    }
-    // Lignes horizontales de profondeur
-    for (var i = 1; i <= 3; i++) {
-      final y = apex.dy + (baseY - apex.dy) * (i / 4);
-      final spread = size.width * 0.12 * i;
-      canvas.drawLine(
-        Offset(size.width / 2 - spread, y),
-        Offset(size.width / 2 + spread, y),
-        p2..color = accent.withValues(alpha: 0.18),
-      );
-    }
-  }
-
-  // Silhouette de ville + étoiles/météores optionnels
-  void _paintCity(Canvas canvas, Size size, {required bool withStars}) {
-    final rnd = math.Random(scene.index + 99);
-    final horizon = size.height * 0.62;
-
-    // Faisceaux verticaux lumineux
-    final beam = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [accent.withValues(alpha: 0.5), Colors.transparent],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, horizon))
-      ..strokeWidth = 1.2;
-    for (var i = 0; i < 5; i++) {
-      final x = size.width * (0.2 + i * 0.15) + rnd.nextDouble() * 20;
-      canvas.drawLine(Offset(x, size.height * 0.1), Offset(x, horizon), beam);
-    }
-
-    // Étoiles + météores
-    if (withStars) {
-      final star = Paint()..color = Colors.white.withValues(alpha: 0.8);
-      for (var i = 0; i < 40; i++) {
-        final x = rnd.nextDouble() * size.width;
-        final y = rnd.nextDouble() * horizon;
-        canvas.drawCircle(Offset(x, y), rnd.nextDouble() * 1.2 + 0.3,
-            star..color = Colors.white.withValues(alpha: rnd.nextDouble() * 0.6 + 0.2));
-      }
-      final meteor = Paint()
-        ..color = accent.withValues(alpha: 0.7)
-        ..strokeWidth = 1.4
-        ..strokeCap = StrokeCap.round;
-      for (var i = 0; i < 3; i++) {
-        final sx = size.width * (0.3 + rnd.nextDouble() * 0.5);
-        final sy = size.height * (0.1 + rnd.nextDouble() * 0.2);
-        canvas.drawLine(Offset(sx, sy), Offset(sx + 70, sy + 40), meteor);
-      }
-    }
-
-    // Silhouette des immeubles
-    final building = Paint()..color = const Color(0xFF050505).withValues(alpha: 0.92);
-    double x = 0;
-    while (x < size.width) {
-      final w = 24.0 + rnd.nextDouble() * 30;
-      final h = 40.0 + rnd.nextDouble() * (size.height * 0.28);
-      canvas.drawRect(Rect.fromLTWH(x, horizon - h, w, size.height - (horizon - h)), building);
-      x += w + 2;
-    }
-  }
-
-  @override
-  bool shouldRepaint(_ScenePainter old) => old.scene != scene || old.accent != accent;
 }
 
 // ── Panneau verre dépoli (liquid glass) ──────────────────────────────────────
@@ -854,160 +435,4 @@ Color _lighten(Color c, double amount) {
 Color _darken(Color c, double amount) {
   final hsl = HSLColor.fromColor(c);
   return hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0)).toColor();
-}
-
-// ── Paroles (mode swap intégré) ───────────────────────────────────────────────
-
-/// Charge les paroles à la demande (par id) et choisit le rendu :
-/// synchronisé (karaoké) si dispo, sinon texte brut.
-class _LyricsView extends ConsumerWidget {
-  final Track track;
-  final Color accent;
-  final Color accentLight;
-  const _LyricsView({required this.track, required this.accent, required this.accentLight});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final id = track.apiId;
-    if (id == null) return const _LyricsMessage('Paroles indisponibles');
-    return ref.watch(lyricsProvider(id)).when(
-          loading: () => const Center(
-            child: SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white70)),
-          ),
-          error: (_, _) => const _LyricsMessage('Paroles indisponibles'),
-          data: (lyrics) {
-            if (lyrics == null || lyrics.isEmpty) return const _LyricsMessage('Paroles indisponibles');
-            if (lyrics.hasSyncedLines) {
-              return _SyncedLyrics(lines: lyrics.lines, accent: accent, accentLight: accentLight);
-            }
-            return _PlainLyrics(text: lyrics.text);
-          },
-        );
-  }
-}
-
-class _LyricsMessage extends StatelessWidget {
-  final String text;
-  const _LyricsMessage(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(text, style: const TextStyle(color: Colors.white54, fontSize: 14)),
-    );
-  }
-}
-
-/// Paroles non synchronisées : simple texte défilant.
-class _PlainLyrics extends StatelessWidget {
-  final String text;
-  const _PlainLyrics({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: const TextStyle(color: Colors.white70, fontSize: 16, height: 1.6, fontWeight: FontWeight.w500),
-      ),
-    );
-  }
-}
-
-/// Paroles synchronisées (karaoké) : ligne active surlignée, auto-scroll centré,
-/// tap sur une ligne → seek. La position vient du player en temps réel.
-class _SyncedLyrics extends ConsumerStatefulWidget {
-  final List<LyricLine> lines;
-  final Color accent;
-  final Color accentLight;
-  const _SyncedLyrics({required this.lines, required this.accent, required this.accentLight});
-
-  @override
-  ConsumerState<_SyncedLyrics> createState() => _SyncedLyricsState();
-}
-
-class _SyncedLyricsState extends ConsumerState<_SyncedLyrics> {
-  final ScrollController _scroll = ScrollController();
-  late final List<GlobalKey> _keys;
-  int _lastScrolled = -1;
-
-  // Petite avance pour que le surlignage "tombe" juste avant l'attaque vocale.
-  static const _leadMs = 200;
-
-  @override
-  void initState() {
-    super.initState();
-    _keys = List.generate(widget.lines.length, (_) => GlobalKey());
-  }
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  int _activeIndex(int posMs) {
-    var found = -1;
-    for (var i = 0; i < widget.lines.length; i++) {
-      if (widget.lines[i].timeMs <= posMs + _leadMs) {
-        found = i;
-      } else {
-        break;
-      }
-    }
-    return found;
-  }
-
-  void _scrollTo(int idx) {
-    if (idx < 0 || idx >= _keys.length) return;
-    final ctx = _keys[idx].currentContext;
-    if (ctx == null) return;
-    Scrollable.ensureVisible(ctx, alignment: 0.35, duration: const Duration(milliseconds: 320), curve: Curves.easeOut);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final posMs = ref.watch(playerProvider.select((s) => s.position)).inMilliseconds;
-    final active = _activeIndex(posMs);
-
-    // Auto-scroll uniquement quand la ligne active change (pas à chaque tick).
-    if (active != _lastScrolled) {
-      _lastScrolled = active;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollTo(active));
-    }
-
-    return SingleChildScrollView(
-      controller: _scroll,
-      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 40),
-      child: Column(
-        children: [for (var i = 0; i < widget.lines.length; i++) _line(i, active)],
-      ),
-    );
-  }
-
-  Widget _line(int i, int active) {
-    final isActive = i == active;
-    final color = isActive ? Colors.white : (i < active ? Colors.white38 : Colors.white60);
-    return Padding(
-      key: _keys[i],
-      padding: const EdgeInsets.symmetric(vertical: 9),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => ref.read(playerProvider.notifier).seekTo(Duration(milliseconds: widget.lines[i].timeMs)),
-        child: AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 200),
-          style: TextStyle(
-            color: color,
-            fontSize: isActive ? 20 : 17,
-            height: 1.35,
-            fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-          ),
-          textAlign: TextAlign.center,
-          child: Text(widget.lines[i].text, textAlign: TextAlign.center),
-        ),
-      ),
-    );
-  }
 }

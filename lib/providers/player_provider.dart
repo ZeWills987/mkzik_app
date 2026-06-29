@@ -6,7 +6,7 @@ import 'package:audio_session/audio_session.dart';
 import '../config/api_config.dart';
 import '../models/track.dart';
 import '../services/track_service.dart';
-import '../services/suggestion_service.dart';
+import '../services/radio_service.dart';
 import '../utils/media.dart';
 import 'import_provider.dart';
 import 'favourites_provider.dart';
@@ -423,14 +423,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _radioFromId = seed.id;
     final token = _playToken;
     try {
-      final suggestions = await _fetchRadio(seed);
+      final suggestions = await RadioService.suggestionsFor(seed);
       if (token != _playToken || _playlist == null) return;
 
       // Dédup contre ce qui est déjà dans la file.
-      final seen = {for (final t in _playerTracks) _radioKey(t)};
+      final seen = {for (final t in _playerTracks) RadioService.dedupKey(t)};
       final fresh = <Track>[];
       for (final t in suggestions) {
-        if (seen.add(_radioKey(t))) fresh.add(t);
+        if (seen.add(RadioService.dedupKey(t))) fresh.add(t);
       }
       if (fresh.isEmpty) return; // → fallback : boucle de file
 
@@ -455,53 +455,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
-  String _radioKey(Track t) => t.pageUrl.isNotEmpty ? t.pageUrl : t.id;
-
-  /// Récupère les suggestions pour le titre [seed] :
-  /// - externe non intégré → `related` sur sa plateforme d'origine (url connue) ;
-  /// - interne / déjà intégré (pas d'url externe) → on cherche une url YT+SC par
-  ///   titre+artiste, puis `related` sur chacune (mix).
-  Future<List<Track>> _fetchRadio(Track seed) async {
-    if (seed.needsImport && seed.pageUrl.isNotEmpty) {
-      switch (seed.extPlatform) {
-        case ExtPlatform.youtubeMusic:
-          return SuggestionService.youtubeRelated(seed.pageUrl);
-        case ExtPlatform.soundcloud:
-          return SuggestionService.soundcloudRelated(seed.pageUrl);
-        case ExtPlatform.other:
-          break;
-      }
-    }
-    // Interne / intégré : recherche d'une url de référence sur chaque plateforme.
-    final q = '${seed.title} ${seed.artist}'.trim();
-    if (q.isEmpty) return const [];
-    final seeds = await _searchSeedUrls(q);
-    final out = <Track>[];
-    if (seeds.yt != null) out.addAll(await SuggestionService.youtubeRelated(seeds.yt!));
-    if (seeds.sc != null) out.addAll(await SuggestionService.soundcloudRelated(seeds.sc!));
-    return out;
-  }
-
-  /// Cherche (recherche externe SSE) une 1ʳᵉ url YouTube et une 1ʳᵉ url SoundCloud
-  /// correspondant à [query]. S'arrête dès que les deux sont trouvées ou à `done`.
-  Future<({String? yt, String? sc})> _searchSeedUrls(String query) async {
-    String? yt, sc;
-    final deadline = DateTime.now().add(const Duration(seconds: 15));
-    try {
-      await for (final ev in TrackService.searchExternalStream(query)) {
-        for (final t in ev.tracks) {
-          if (t.pageUrl.isEmpty) continue;
-          if (yt == null && t.extPlatform == ExtPlatform.youtubeMusic) yt = t.pageUrl;
-          if (sc == null && t.extPlatform == ExtPlatform.soundcloud) sc = t.pageUrl;
-        }
-        if ((yt != null && sc != null) || ev.done || DateTime.now().isAfter(deadline)) break;
-      }
-    } catch (e) {
-      mkLog('Mkzik 📻 radio seed search erreur : $e');
-    }
-    return (yt: yt, sc: sc);
-  }
-
   /// Active le **mode radio** à la demande (depuis la file d'attente) : remplace
   /// tout ce qui suit le titre courant par des suggestions du même mood, sans
   /// couper la lecture en cours. Renvoie `true` si la radio a démarré.
@@ -511,9 +464,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final pIdx = _playerTracks.indexWhere((t) => t.id == seed.id);
     if (pIdx < 0) return false;
     try {
-      final suggestions = await _fetchRadio(seed);
-      final seen = {_radioKey(seed)};
-      final fresh = <Track>[for (final t in suggestions) if (seen.add(_radioKey(t))) t];
+      final suggestions = await RadioService.suggestionsFor(seed);
+      final seen = {RadioService.dedupKey(seed)};
+      final fresh = <Track>[for (final t in suggestions) if (seen.add(RadioService.dedupKey(t))) t];
       if (fresh.isEmpty) return false;
 
       final resolved = <Track>[];
