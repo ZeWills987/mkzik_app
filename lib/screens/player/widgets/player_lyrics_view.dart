@@ -136,24 +136,41 @@ class _SyncedLyricsState extends ConsumerState<_SyncedLyrics> {
 
   Widget _line(int i, int active) {
     final isActive = i == active;
-    final color = isActive ? Colors.white : (i < active ? Colors.white38 : Colors.white60);
+    final isPast = i < active;
+    final line = widget.lines[i];
+
+    // ⚠️ Géométrie CONSTANTE (même taille + graisse pour toutes les lignes) :
+    // la ligne active ne change pas de dimensions → aucun retour à la ligne qui
+    // « saute ». L'emphase passe uniquement par la couleur (dégradé façon titre).
+    const style = TextStyle(fontSize: 19, height: 1.4, fontWeight: FontWeight.w700);
+
+    Widget text = AnimatedDefaultTextStyle(
+      duration: const Duration(milliseconds: 220),
+      style: style.copyWith(color: isPast ? Colors.white24 : Colors.white54),
+      textAlign: TextAlign.center,
+      child: Text(line.text, textAlign: TextAlign.center),
+    );
+
+    if (isActive) {
+      // Coloration dégradée de la ligne courante, comme le titre du morceau.
+      text = ShaderMask(
+        shaderCallback: (bounds) => LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [Colors.white, widget.accentLight, Colors.white],
+        ).createShader(bounds),
+        blendMode: BlendMode.srcIn,
+        child: Text(line.text, textAlign: TextAlign.center, style: style.copyWith(color: Colors.white)),
+      );
+    }
+
     return Padding(
       key: _keys[i],
       padding: const EdgeInsets.symmetric(vertical: 9),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => ref.read(playerProvider.notifier).seekTo(Duration(milliseconds: widget.lines[i].timeMs)),
-        child: AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 200),
-          style: TextStyle(
-            color: color,
-            fontSize: isActive ? 20 : 17,
-            height: 1.35,
-            fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-          ),
-          textAlign: TextAlign.center,
-          child: Text(widget.lines[i].text, textAlign: TextAlign.center),
-        ),
+        onTap: () => ref.read(playerProvider.notifier).seekTo(Duration(milliseconds: line.timeMs)),
+        child: text,
       ),
     );
   }
