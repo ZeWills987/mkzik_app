@@ -15,6 +15,8 @@ class Track {
   final String source; // '' = interne/intégré ; 'ytm'/'sc'/... = externe à importer
   final List<String> platforms; // ex: ['youtube'], ['soundcloud']
   final DateTime? publishedAt; // date de publication (null si inconnue)
+  final bool hasLyrics; // flag léger (listes/détail) → active le bouton LYRICS
+  final bool lyricsSynced; // des paroles synchronisées (karaoké) sont dispo
 
   const Track({
     required this.id,
@@ -31,6 +33,8 @@ class Track {
     this.source = '',
     this.platforms = const [],
     this.publishedAt,
+    this.hasLyrics = false,
+    this.lyricsSynced = false,
   });
 
   bool get hasCover => coverUrl.isNotEmpty;
@@ -107,6 +111,8 @@ class Track {
           .map((p) => p.toString())
           .toList(),
       publishedAt: _parseDate(j['publication_date']),
+      hasLyrics: j['has_lyrics'] == true,
+      lyricsSynced: j['lyrics_synced'] == true,
     );
   }
 
@@ -135,6 +141,8 @@ class Track {
         source: source,
         platforms: platforms,
         publishedAt: publishedAt,
+        hasLyrics: hasLyrics,
+        lyricsSynced: lyricsSynced,
       );
 
   @override

@@ -7,7 +7,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/track.dart';
 import '../../models/track_visuals.dart';
+import '../../models/lyrics.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/lyrics_provider.dart';
 import '../../providers/notice_provider.dart';
 import '../../widgets/current_list_sheet.dart';
 import '../../widgets/track_cover.dart';
@@ -50,6 +52,8 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
     with SingleTickerProviderStateMixin {
   // Décalage vertical courant pendant le glissement (0 = position fermée/haute)
   double _dragOffset = 0;
+  // Mode paroles : la zone centrale (pochette) laisse place aux lyrics.
+  bool _showLyrics = false;
   late final AnimationController _snap;
 
   @override
@@ -100,6 +104,38 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
 
     final screenH = MediaQuery.of(context).size.height;
     final dragT = (_dragOffset / screenH).clamp(0.0, 1.0);
+
+    // Mode paroles actif uniquement si la track en a (sinon on reste en léger).
+    final showLyrics = _showLyrics && track.hasLyrics;
+
+    // Bloc titre + artiste, partagé entre le mode léger et le mode paroles.
+    final Widget titleBlock = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        children: [
+          _GradientText(
+            track.title.toUpperCase(),
+            colors: [Colors.white, accentLight, Colors.white],
+            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: 0.5, height: 1.1),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          GestureDetector(
+            onTap: track.artist.isEmpty
+                ? null
+                : () {
+                    Navigator.of(context).maybePop();
+                    ProfileScreen.open(context, track.artist);
+                  },
+            child: Text(
+              track.artist.toUpperCase(),
+              textAlign: TextAlign.center,
+              style: TextStyle(color: accentLight, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 2),
+            ),
+          ),
+        ],
+      ),
+    );
 
     return GestureDetector(
       // Glisser vers le bas n'importe où sur le fond pour fermer
@@ -191,69 +227,41 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                   onQueue: () => showCurrentList(context),
                 ),
 
-                const Spacer(flex: 2),
+                if (!showLyrics) ...[
+                  const Spacer(flex: 2),
 
-                // Pochette nette (style Apple Music) — cadre verre + ombre portée
-                Container(
-                  width: artSize,
-                  height: artSize,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.45),
-                        blurRadius: 40,
-                        offset: const Offset(0, 22),
-                      ),
-                    ],
-                  ),
-                  child: TrackCover(track: track, size: artSize, radius: 24),
-                ),
-
-                const SizedBox(height: 26),
-
-                // Titre + artiste centrés
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 28),
-                  child: Column(
-                    children: [
-                      _GradientText(
-                        track.title.toUpperCase(),
-                        colors: [Colors.white, accentLight, Colors.white],
-                        style: const TextStyle(
-                          fontSize: 26,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
-                          height: 1.1,
+                  // Pochette nette (style Apple Music) — cadre verre + ombre portée
+                  Container(
+                    width: artSize,
+                    height: artSize,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          blurRadius: 40,
+                          offset: const Offset(0, 22),
                         ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 6),
-                      // Artiste cliquable → son profil (ferme le modal d'abord)
-                      GestureDetector(
-                        onTap: track.artist.isEmpty
-                            ? null
-                            : () {
-                                Navigator.of(context).maybePop();
-                                ProfileScreen.open(context, track.artist);
-                              },
-                        child: Text(
-                          track.artist.toUpperCase(),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: accentLight,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 2,
-                          ),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
+                    child: TrackCover(track: track, size: artSize, radius: 24),
                   ),
-                ),
 
-                const Spacer(flex: 3),
+                  const SizedBox(height: 26),
+                  titleBlock,
+                  const Spacer(flex: 3),
+                ] else ...[
+                  // Mode paroles : titre compact en haut, paroles qui remplissent
+                  // l'espace jusqu'au panneau de contrôles.
+                  const SizedBox(height: 14),
+                  titleBlock,
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: _LyricsView(track: track, accent: accent, accentLight: accentLight),
+                  ),
+                  const SizedBox(height: 8),
+                ],
 
                 // ── Panneau "liquid glass" : toutes les commandes ────────────
                 Padding(
@@ -268,6 +276,9 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                             isLiked: player.isLiked,
                             likes: track.likesLabel,
                             accent: accent,
+                            hasLyrics: track.hasLyrics,
+                            lyricsActive: showLyrics,
+                            onLyrics: () => setState(() => _showLyrics = !_showLyrics),
                             onLike: notifier.toggleLike,
                             onShare: () {
                               Clipboard.setData(ClipboardData(
@@ -411,6 +422,9 @@ class _ActionsRow extends StatelessWidget {
   final bool isLiked;
   final String likes;
   final Color accent;
+  final bool hasLyrics;
+  final bool lyricsActive;
+  final VoidCallback onLyrics;
   final VoidCallback onLike;
   final VoidCallback onShare;
   final VoidCallback onMore;
@@ -419,6 +433,9 @@ class _ActionsRow extends StatelessWidget {
     required this.isLiked,
     required this.likes,
     required this.accent,
+    required this.hasLyrics,
+    required this.lyricsActive,
+    required this.onLyrics,
     required this.onLike,
     required this.onShare,
     required this.onMore,
@@ -436,7 +453,13 @@ class _ActionsRow extends StatelessWidget {
           color: isLiked ? accent : Colors.white,
           onTap: onLike,
         ),
-        _ActionItem(icon: Icons.mic_none, label: 'LYRICS', onTap: () {}),
+        // LYRICS : actif → accent ; pas de paroles → grisé/inerte.
+        _ActionItem(
+          icon: Icons.mic_none,
+          label: 'LYRICS',
+          color: !hasLyrics ? Colors.white24 : (lyricsActive ? accent : Colors.white),
+          onTap: hasLyrics ? onLyrics : () {},
+        ),
         _ActionItem(icon: Icons.ios_share, label: 'SHARE', onTap: onShare),
         _ActionItem(icon: Icons.more_horiz, label: 'MORE', onTap: onMore),
       ],
@@ -831,4 +854,160 @@ Color _lighten(Color c, double amount) {
 Color _darken(Color c, double amount) {
   final hsl = HSLColor.fromColor(c);
   return hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0)).toColor();
+}
+
+// ── Paroles (mode swap intégré) ───────────────────────────────────────────────
+
+/// Charge les paroles à la demande (par id) et choisit le rendu :
+/// synchronisé (karaoké) si dispo, sinon texte brut.
+class _LyricsView extends ConsumerWidget {
+  final Track track;
+  final Color accent;
+  final Color accentLight;
+  const _LyricsView({required this.track, required this.accent, required this.accentLight});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final id = track.apiId;
+    if (id == null) return const _LyricsMessage('Paroles indisponibles');
+    return ref.watch(lyricsProvider(id)).when(
+          loading: () => const Center(
+            child: SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white70)),
+          ),
+          error: (_, _) => const _LyricsMessage('Paroles indisponibles'),
+          data: (lyrics) {
+            if (lyrics == null || lyrics.isEmpty) return const _LyricsMessage('Paroles indisponibles');
+            if (lyrics.hasSyncedLines) {
+              return _SyncedLyrics(lines: lyrics.lines, accent: accent, accentLight: accentLight);
+            }
+            return _PlainLyrics(text: lyrics.text);
+          },
+        );
+  }
+}
+
+class _LyricsMessage extends StatelessWidget {
+  final String text;
+  const _LyricsMessage(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(text, style: const TextStyle(color: Colors.white54, fontSize: 14)),
+    );
+  }
+}
+
+/// Paroles non synchronisées : simple texte défilant.
+class _PlainLyrics extends StatelessWidget {
+  final String text;
+  const _PlainLyrics({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: Colors.white70, fontSize: 16, height: 1.6, fontWeight: FontWeight.w500),
+      ),
+    );
+  }
+}
+
+/// Paroles synchronisées (karaoké) : ligne active surlignée, auto-scroll centré,
+/// tap sur une ligne → seek. La position vient du player en temps réel.
+class _SyncedLyrics extends ConsumerStatefulWidget {
+  final List<LyricLine> lines;
+  final Color accent;
+  final Color accentLight;
+  const _SyncedLyrics({required this.lines, required this.accent, required this.accentLight});
+
+  @override
+  ConsumerState<_SyncedLyrics> createState() => _SyncedLyricsState();
+}
+
+class _SyncedLyricsState extends ConsumerState<_SyncedLyrics> {
+  final ScrollController _scroll = ScrollController();
+  late final List<GlobalKey> _keys;
+  int _lastScrolled = -1;
+
+  // Petite avance pour que le surlignage "tombe" juste avant l'attaque vocale.
+  static const _leadMs = 200;
+
+  @override
+  void initState() {
+    super.initState();
+    _keys = List.generate(widget.lines.length, (_) => GlobalKey());
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  int _activeIndex(int posMs) {
+    var found = -1;
+    for (var i = 0; i < widget.lines.length; i++) {
+      if (widget.lines[i].timeMs <= posMs + _leadMs) {
+        found = i;
+      } else {
+        break;
+      }
+    }
+    return found;
+  }
+
+  void _scrollTo(int idx) {
+    if (idx < 0 || idx >= _keys.length) return;
+    final ctx = _keys[idx].currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(ctx, alignment: 0.35, duration: const Duration(milliseconds: 320), curve: Curves.easeOut);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final posMs = ref.watch(playerProvider.select((s) => s.position)).inMilliseconds;
+    final active = _activeIndex(posMs);
+
+    // Auto-scroll uniquement quand la ligne active change (pas à chaque tick).
+    if (active != _lastScrolled) {
+      _lastScrolled = active;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollTo(active));
+    }
+
+    return SingleChildScrollView(
+      controller: _scroll,
+      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 40),
+      child: Column(
+        children: [for (var i = 0; i < widget.lines.length; i++) _line(i, active)],
+      ),
+    );
+  }
+
+  Widget _line(int i, int active) {
+    final isActive = i == active;
+    final color = isActive ? Colors.white : (i < active ? Colors.white38 : Colors.white60);
+    return Padding(
+      key: _keys[i],
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => ref.read(playerProvider.notifier).seekTo(Duration(milliseconds: widget.lines[i].timeMs)),
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 200),
+          style: TextStyle(
+            color: color,
+            fontSize: isActive ? 20 : 17,
+            height: 1.35,
+            fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+          ),
+          textAlign: TextAlign.center,
+          child: Text(widget.lines[i].text, textAlign: TextAlign.center),
+        ),
+      ),
+    );
+  }
 }
