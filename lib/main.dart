@@ -6,6 +6,7 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'navigation/app_nav.dart';
 import 'navigation/app_nav_impl.dart';
 import 'screens/auth/auth_gate.dart';
+import 'widgets/app_version_gate.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -45,7 +46,7 @@ class MkzikApp extends StatelessWidget {
       title: 'Mkzik',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
-      home: const AuthGate(),
+      home: const AppVersionGate(child: AuthGate()),
     );
   }
 }

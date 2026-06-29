@@ -52,8 +52,10 @@ jobs:
       - name: Récupérer les dépendances
         run: flutter pub get
 
+      # --build-number = numéro de run CI → versionCode qui monte à chaque build
+      # (le compteur local de version.properties ne persiste pas sur le runner).
       - name: Build APK (release)
-        run: flutter build apk --release
+        run: flutter build apk --release --build-number=${{ github.run_number }}
 
       # Tag fixe "android-latest" → l'URL de l'APK ne change jamais.
       - name: Publier l'APK dans une Release

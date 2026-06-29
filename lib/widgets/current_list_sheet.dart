@@ -61,6 +61,13 @@ class _CurrentListSheet extends ConsumerWidget {
               ),
             ),
 
+            // Mode radio : enchaîne sur des titres du même mood à partir du courant.
+            if (current != null)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: _RadioButton(),
+              ),
+
             if (current == null)
               const Expanded(
                 child: Center(child: Text('Aucun titre en lecture', style: TextStyle(color: kTextSecondary))),
@@ -165,6 +172,63 @@ class _CurrentListSheet extends ConsumerWidget {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Bouton « Mode radio » : lance une écoute du même mood depuis le titre courant.
+class _RadioButton extends ConsumerStatefulWidget {
+  const _RadioButton();
+
+  @override
+  ConsumerState<_RadioButton> createState() => _RadioButtonState();
+}
+
+class _RadioButtonState extends ConsumerState<_RadioButton> {
+  bool _loading = false;
+
+  Future<void> _start() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    final ok = await ref.read(playerProvider.notifier).startRadio();
+    if (!mounted) return;
+    setState(() => _loading = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text(ok ? 'Mode radio activé — titres du même mood' : 'Aucune suggestion trouvée'),
+      ),
+    );
+    if (ok) Navigator.of(context).maybePop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: kAccent.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: _loading ? null : _start,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: _loading
+                    ? const CircularProgressIndicator(strokeWidth: 2.2, color: kAccent)
+                    : const Icon(Icons.radio, color: kAccent, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Text(_loading ? 'Recherche du mood…' : 'Mode radio',
+                  style: const TextStyle(color: kAccent, fontSize: 14, fontWeight: FontWeight.w700)),
+            ],
+          ),
         ),
       ),
     );

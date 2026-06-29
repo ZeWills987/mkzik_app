@@ -1,8 +1,24 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// ── Auto-incrément du versionCode à chaque build ────────────────────────────
+// Un compteur persistant (android/app/version.properties, gitignoré) monte de 1
+// à chaque build Android. versionName reste piloté par pubspec (version: x.y.z).
+val buildCounterFile = file("version.properties")
+val buildProps = Properties().apply {
+    if (buildCounterFile.exists()) buildCounterFile.inputStream().use { load(it) }
+}
+val autoVersionCode = maxOf(
+    (buildProps.getProperty("buildCode")?.toIntOrNull() ?: 0) + 1,
+    flutter.versionCode,
+)
+buildProps.setProperty("buildCode", autoVersionCode.toString())
+buildCounterFile.outputStream().use { buildProps.store(it, "Auto-incrément à chaque build — ne pas éditer à la main") }
 
 android {
     namespace = "fr.mkzik.app"
@@ -24,7 +40,7 @@ android {
         // Play Store exige targetSdk >= 35 (Android 15) pour les nouvelles apps
         // et les mises à jour depuis fin août 2025.
         targetSdk = 35
-        versionCode = flutter.versionCode
+        versionCode = autoVersionCode // auto-incrémenté à chaque build (cf. ci-dessus)
         versionName = flutter.versionName
     }
 

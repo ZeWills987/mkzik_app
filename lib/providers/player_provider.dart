@@ -483,6 +483,47 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     return (yt: yt, sc: sc);
   }
 
+  /// Active le **mode radio** à la demande (depuis la file d'attente) : remplace
+  /// tout ce qui suit le titre courant par des suggestions du même mood, sans
+  /// couper la lecture en cours. Renvoie `true` si la radio a démarré.
+  Future<bool> startRadio() async {
+    final seed = state.currentTrack;
+    if (seed == null || _playlist == null) return false;
+    final pIdx = _playerTracks.indexWhere((t) => t.id == seed.id);
+    if (pIdx < 0) return false;
+    try {
+      final suggestions = await _fetchRadio(seed);
+      final seen = {_radioKey(seed)};
+      final fresh = <Track>[for (final t in suggestions) if (seen.add(_radioKey(t))) t];
+      if (fresh.isEmpty) return false;
+
+      final resolved = <Track>[];
+      final sources = <AudioSource>[];
+      for (final t in fresh.take(20)) {
+        final r = await _resolveForQueue(t);
+        if (r == null || r.audioUrl.isEmpty) continue;
+        resolved.add(r);
+        sources.add(_audioSourceFor(r));
+      }
+      if (resolved.isEmpty || _playlist == null) return false;
+
+      // Retire ce qui suit le titre courant, puis enchaîne la radio.
+      if (pIdx + 1 < _playerTracks.length) {
+        await _playlist!.removeRange(pIdx + 1, _playerTracks.length);
+      }
+      await _playlist!.addAll(sources);
+      _playerTracks = [..._playerTracks.sublist(0, pIdx + 1), ...resolved];
+      final keep = state.queue.sublist(0, state.currentIndex + 1);
+      state = state.copyWith(queue: [...keep, ...resolved]);
+      _radioFromId = null; // autorise l'extension auto quand on atteindra la fin
+      mkLog('Mkzik 📻 mode radio : ${resolved.length} titres (seed "${seed.title}")');
+      return true;
+    } catch (e) {
+      mkLog('Mkzik 📻 mode radio erreur : $e');
+      return false;
+    }
+  }
+
   Future<void> togglePlayPause() async {
     if (_audio.playing) {
       await _audio.pause();

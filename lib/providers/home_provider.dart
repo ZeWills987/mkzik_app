@@ -19,29 +19,16 @@ final historyPlayProvider = FutureProvider<List<Track>>((ref) async {
   return tracks;
 });
 
-/// "Suggestions" → mix top YouTube Music + top SoundCloud (suggestions globales,
-/// titres externes jouables via `/stream`).
-final globalSuggestionsProvider = FutureProvider<List<Track>>((ref) async {
-  final results = await Future.wait([
-    SuggestionService.youtubeTop(limit: 12),
-    SuggestionService.soundcloudTop(limit: 12),
-  ]);
-  return _interleaveDedup(results[0], results[1], max: 16);
+/// "Suggestions YouTube" → top YouTube Music (charts), titres externes /stream.
+/// Section pure (pas de mélange de plateformes — chaque source a sa rangée).
+final youtubeSuggestionsProvider = FutureProvider<List<Track>>((ref) async {
+  return SuggestionService.youtubeTop(limit: 16);
 });
 
-/// Alterne deux listes (a, b, a, b…) en supprimant les doublons (clé url/id).
-List<Track> _interleaveDedup(List<Track> a, List<Track> b, {int max = 16}) {
-  final out = <Track>[];
-  final seen = <String>{};
-  final n = a.length > b.length ? a.length : b.length;
-  for (var i = 0; i < n && out.length < max; i++) {
-    for (final t in [if (i < a.length) a[i], if (i < b.length) b[i]]) {
-      final key = t.pageUrl.isNotEmpty ? t.pageUrl : t.id;
-      if (seen.add(key) && out.length < max) out.add(t);
-    }
-  }
-  return out;
-}
+/// "Suggestions SoundCloud" → top SoundCloud (charts), titres externes /stream.
+final soundcloudSuggestionsProvider = FutureProvider<List<Track>>((ref) async {
+  return SuggestionService.soundcloudTop(limit: 16);
+});
 
 /// "Artistes recommandés" → `GET api/trending`.
 final trendingUsersProvider = FutureProvider<List<SearchUser>>((ref) async {

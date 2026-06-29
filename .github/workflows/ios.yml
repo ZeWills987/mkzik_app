@@ -70,8 +70,9 @@ jobs:
 
       # Génère la config Xcode SANS lancer le build (évite le check "Development
       # Team" de Flutter sur les builds device).
+      # --build-number = numéro de run CI → CFBundleVersion qui monte à chaque build.
       - name: Préparer la config Xcode
-        run: flutter build ios --release --no-codesign --config-only
+        run: flutter build ios --release --no-codesign --config-only --build-number=${{ github.run_number }}
 
       - name: Installer les pods
         run: |
