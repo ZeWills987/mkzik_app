@@ -17,6 +17,7 @@ import '../profile/profile_screen.dart';
 import 'widgets/player_scene_painter.dart';
 import 'widgets/player_waveform.dart';
 import 'widgets/player_controls.dart';
+import '../../models/lyrics.dart';
 import '../../providers/lyrics_provider.dart';
 import 'widgets/player_lyrics_view.dart';
 import 'widgets/lyrics_fullscreen.dart';
@@ -410,9 +411,14 @@ class _CurrentLyricsLine extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final id = track.apiId;
-    if (id == null) return const SizedBox.shrink();
-
-    final lyrics = ref.watch(lyricsProvider(id)).valueOrNull;
+    final Lyrics? lyrics;
+    if (id != null) {
+      lyrics = ref.watch(lyricsProvider(id)).valueOrNull;
+    } else if (track.pageUrl.isNotEmpty) {
+      lyrics = ref.watch(lyricsUrlProvider(track.pageUrl)).valueOrNull;
+    } else {
+      return const SizedBox.shrink();
+    }
     if (lyrics == null || !lyrics.hasSyncedLines) return const SizedBox.shrink();
 
     final posMs = ref.watch(playerProvider.select((s) => s.position)).inMilliseconds;

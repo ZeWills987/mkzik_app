@@ -16,20 +16,27 @@ class LyricsView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final id = track.apiId;
-    if (id == null) return const _LyricsMessage('Paroles indisponibles');
-    return ref.watch(lyricsProvider(id)).when(
-          loading: () => const Center(
-            child: SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white70)),
-          ),
-          error: (_, _) => const _LyricsMessage('Paroles indisponibles'),
-          data: (lyrics) {
-            if (lyrics == null || lyrics.isEmpty) return const _LyricsMessage('Paroles indisponibles');
-            if (lyrics.hasSyncedLines) {
-              return _SyncedLyrics(lines: lyrics.lines, accent: accent, accentLight: accentLight);
-            }
-            return _PlainLyrics(text: lyrics.text);
-          },
-        );
+    final AsyncValue<Lyrics?> async;
+    if (id != null) {
+      async = ref.watch(lyricsProvider(id));
+    } else if (track.pageUrl.isNotEmpty) {
+      async = ref.watch(lyricsUrlProvider(track.pageUrl));
+    } else {
+      return const _LyricsMessage('Paroles indisponibles');
+    }
+    return async.when(
+      loading: () => const Center(
+        child: SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white70)),
+      ),
+      error: (_, _) => const _LyricsMessage('Paroles indisponibles'),
+      data: (lyrics) {
+        if (lyrics == null || lyrics.isEmpty) return const _LyricsMessage('Paroles indisponibles');
+        if (lyrics.hasSyncedLines) {
+          return _SyncedLyrics(lines: lyrics.lines, accent: accent, accentLight: accentLight);
+        }
+        return _PlainLyrics(text: lyrics.text);
+      },
+    );
   }
 }
 
