@@ -7,6 +7,7 @@ import '../config/api_config.dart';
 import '../models/track.dart';
 import '../services/track_service.dart';
 import '../services/radio_service.dart';
+import '../services/stream_service.dart';
 import '../utils/media.dart';
 import 'import_provider.dart';
 import 'favourites_provider.dart';
@@ -193,6 +194,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (!sameTrack) {
       unawaited(_finishPlay());
       unawaited(_beginPlay(t));
+      // Pré-chauffe les prochains flux externes (cache hit au démarrage suivant).
+      unawaited(_warmupNext());
     }
     // Autoplay radio : quand le titre courant est le DERNIER de la file, on
     // précharge des suggestions et on les ajoute pour enchaîner sans coupure.
@@ -295,6 +298,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       // Démarre le tracking d'écoute du titre courant (l'event d'index initial
       // est "same track" → on le démarre explicitement ici).
       unawaited(_beginPlay(current));
+      // Pré-chauffe les prochains flux externes pendant que l'audio charge.
+      unawaited(_warmupNext());
     } catch (e) {
       mkLog('Mkzik ▶ erreur lecture "${track.title}" : $e');
       if (streamJobId != null) importNotifier.streamError(streamJobId, 'Flux indisponible, réessaie');
@@ -356,6 +361,21 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         }
       }
     }
+  }
+
+  /// Pré-chauffe les 2 prochaines tracks externes de la file via `/stream/prepare`.
+  /// Python lance yt-dlp en avance de phase → cache hit (~0 ms) au démarrage réel.
+  /// Fire-and-forget : ne bloque jamais la lecture en cours.
+  Future<void> _warmupNext() async {
+    final q = state.queue;
+    final idx = state.currentIndex;
+    final urls = q
+        .skip(idx + 1)
+        .take(2)
+        .where((t) => t.needsImport && t.pageUrl.isNotEmpty)
+        .map((t) => t.pageUrl)
+        .toList();
+    await StreamService.prepare(urls);
   }
 
   /// Rend un track réellement jouable (cf. React `handleClicTrack`) :
