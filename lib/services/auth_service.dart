@@ -2,7 +2,10 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../config/api_config.dart';
 import 'api_client.dart';
 
-final _googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
+final _googleSignIn = GoogleSignIn(
+  scopes: ['email', 'profile'],
+  serverClientId: '209129894628-htrnnlche3ee4gstquibqsj6ad1mnq7h.apps.googleusercontent.com',
+);
 
 /// Erreur d'authentification avec message lisible pour l'UI.
 class AuthException implements Exception {

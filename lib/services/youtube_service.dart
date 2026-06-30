@@ -11,6 +11,7 @@ class YoutubeNeedsReconnectException implements Exception {
 
 final _googleSignIn = GoogleSignIn(
   scopes: ['https://www.googleapis.com/auth/youtube.readonly'],
+  serverClientId: '209129894628-htrnnlche3ee4gstquibqsj6ad1mnq7h.apps.googleusercontent.com',
 );
 
 class YoutubeService {
