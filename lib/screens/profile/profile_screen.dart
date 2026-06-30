@@ -15,6 +15,7 @@ import '../../widgets/track_actions.dart';
 import '../../widgets/notice_banner.dart';
 import '../../widgets/mini_player.dart';
 import 'edit_profile_screen.dart';
+import 'youtube_screen.dart';
 
 class ProfileScreen extends ConsumerWidget {
   /// null = profil de l'utilisateur connecté (onglet Profil).
@@ -85,6 +86,8 @@ class ProfileScreen extends ConsumerWidget {
                 ),
               ),
               SliverToBoxAdapter(child: _StatsCard(data: data)),
+              if (isOwn)
+                SliverToBoxAdapter(child: _YoutubeCard(context: context)),
               if (data.profile.description.isNotEmpty)
                 SliverToBoxAdapter(child: _Bio(text: data.profile.description)),
               SliverToBoxAdapter(child: _ZiksHeader(count: data.tracks.length)),
@@ -111,6 +114,46 @@ class ProfileScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+// ── Carte YouTube Music ───────────────────────────────────────────────────────
+
+class _YoutubeCard extends StatelessWidget {
+  final BuildContext context;
+  const _YoutubeCard({required this.context});
+
+  @override
+  Widget build(BuildContext ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: InkWell(
+          onTap: () => YoutubeScreen.open(context),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: kSurface,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.music_video_outlined, color: Color(0xFFFF0000), size: 24),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('YouTube Music', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
+                      SizedBox(height: 2),
+                      Text('Importer playlists et likes', style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: kTextSecondary),
+              ],
+            ),
+          ),
+        ),
+      );
 }
 
 // ── Hero : cover + avatar + nom + bouton ─────────────────────────────────────
