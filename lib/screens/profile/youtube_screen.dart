@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../models/yt_playlist.dart';
 import '../../providers/youtube_provider.dart';
 import '../../services/api_client.dart';
@@ -18,7 +17,7 @@ class YoutubeScreen extends ConsumerStatefulWidget {
   ConsumerState<YoutubeScreen> createState() => _YoutubeScreenState();
 }
 
-class _YoutubeScreenState extends ConsumerState<YoutubeScreen> with WidgetsBindingObserver {
+class _YoutubeScreenState extends ConsumerState<YoutubeScreen> {
   bool _connectLoading = false;
   bool _likesLoading = false;
   String? _likesResult;
@@ -27,39 +26,18 @@ class _YoutubeScreenState extends ConsumerState<YoutubeScreen> with WidgetsBindi
   final Map<String, String> _playlistResult = {};
   final Map<String, String> _playlistError = {};
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      // Retour dans l'app après le browser OAuth → on recheck la connexion
-      ref.invalidate(ytConnectedProvider);
-      ref.invalidate(ytPlaylistsProvider);
-    }
-  }
 
   Future<void> _connect() async {
     setState(() => _connectLoading = true);
     try {
-      final url = await YoutubeService.connectUrl();
-      if (url == null || url.isEmpty) {
-        if (mounted) _showError("Impossible d'obtenir l'URL de connexion");
-        return;
+      final connected = await YoutubeService.connect();
+      if (!mounted) return;
+      if (connected) {
+        ref.invalidate(ytConnectedProvider);
+        ref.invalidate(ytPlaylistsProvider);
       }
-      final uri = Uri.parse(url);
-      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-        if (mounted) _showError('Impossible d\'ouvrir le navigateur');
-      }
+    } catch (e) {
+      if (mounted) _showError(e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _connectLoading = false);
     }
