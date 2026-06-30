@@ -118,18 +118,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Ouvre le navigateur sur `GET /connect/google` (flow OAuth server-side).
-  /// Le JWT mkzik arrive ensuite via deep link `mkzik://auth/google/callback?token=`
-  /// intercepté par AuthGate → appel à [applyNewToken].
-  Future<void> loginWithGoogle() async {
+  Future<bool> loginWithGoogle() async {
     state = state.copyWith(submitting: true, clearError: true);
     try {
-      await AuthService.openGoogleConnect();
+      final token = await AuthService.loginWithGoogle();
+      await TokenStorage.write(token);
+      _applyToken(token);
+      return true;
     } on AuthException catch (e) {
       state = state.copyWith(submitting: false, error: e.message);
-      return;
+      return false;
     }
-    state = state.copyWith(submitting: false);
   }
 
   Future<void> logout() async {
