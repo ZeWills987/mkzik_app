@@ -118,6 +118,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  Future<bool> loginWithGoogle() async {
+    state = state.copyWith(submitting: true, clearError: true);
+    try {
+      final token = await AuthService.loginWithGoogle();
+      await TokenStorage.write(token);
+      _applyToken(token);
+      return true;
+    } on AuthException catch (e) {
+      state = state.copyWith(submitting: false, error: e.message);
+      return false;
+    }
+  }
+
   Future<void> logout() async {
     await TokenStorage.clear();
     ApiConfig.token = null;
