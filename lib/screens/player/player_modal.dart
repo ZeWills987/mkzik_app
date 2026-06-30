@@ -112,13 +112,11 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
 
     // Bouton/mode LYRICS :
     //  • interne → flag serveur `track.hasLyrics`.
-    //  • externe → header `X-Has-Lyrics` du flux (sonde légère). On reste optimiste
-    //    tant que la sonde n'a pas répondu (null) et on ne masque que sur un 0 franc.
+    //  • externe → toujours tentable (le fetch `/lyrics?url=` retourne `found: false`
+    //    si pas de paroles — la sonde via /stream a été supprimée car elle ouvrait une
+    //    connexion concurrente sur le même flux yt-dlp et provoquait des sauts prématurés).
     final isExternal = track.source.isNotEmpty && track.pageUrl.isNotEmpty;
-    final streamHasLyrics =
-        isExternal ? ref.watch(streamHasLyricsProvider(track.pageUrl)).valueOrNull : null;
-    final canTryLyrics =
-        track.hasLyrics || (isExternal && (streamHasLyrics ?? true));
+    final canTryLyrics = track.hasLyrics || isExternal;
     final showLyrics = _showLyrics && canTryLyrics;
 
     // Bloc titre + artiste, partagé entre le mode léger et le mode paroles.

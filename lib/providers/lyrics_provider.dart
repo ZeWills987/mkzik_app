@@ -15,8 +15,3 @@ final lyricsUrlProvider = FutureProvider.family<Lyrics?, Track>((ref, track) asy
   return LyricsService.fetchByUrl(track.pageUrl, artist: track.artist, title: track.title);
 });
 
-/// Disponibilité des paroles d'un flux direct via le header `X-Has-Lyrics`
-/// (sonde légère, sans télécharger l'audio). `null` = indéterminé.
-final streamHasLyricsProvider = FutureProvider.family<bool?, String>((ref, pageUrl) async {
-  return LyricsService.streamHasLyrics(pageUrl);
-});
