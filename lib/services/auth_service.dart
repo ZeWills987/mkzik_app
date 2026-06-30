@@ -4,7 +4,7 @@ import 'api_client.dart';
 
 final _googleSignIn = GoogleSignIn(
   scopes: ['email', 'profile'],
-  serverClientId: '209129894628-htrnnlche3ee4gstquibqsj6ad1mnq7h.apps.googleusercontent.com',
+  serverClientId: '209129894628-l1es9tbodhdiqq3nft1ac8kl3mjfie5l.apps.googleusercontent.com',
 );
 
 /// Erreur d'authentification avec message lisible pour l'UI.
