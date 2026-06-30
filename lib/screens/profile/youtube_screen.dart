@@ -4,7 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/yt_playlist.dart';
 import '../../providers/youtube_provider.dart';
 import '../../services/api_client.dart';
-import '../../services/youtube_service.dart';
+import '../../services/youtube_service.dart' show YoutubeService, YoutubeNeedsReconnectException;
 import '../../theme/app_theme.dart';
 
 class YoutubeScreen extends ConsumerStatefulWidget {
@@ -71,10 +71,14 @@ class _YoutubeScreenState extends ConsumerState<YoutubeScreen> with WidgetsBindi
     if (!mounted) return;
     switch (res) {
       case Ok(:final data):
-        final count = (data is Map) ? data['imported'] ?? data['count'] : null;
-        setState(() => _likesResult = count != null ? '$count titres importés en favoris' : 'Likes importés');
-      case Err(:final message):
-        setState(() => _likesError = message);
+        setState(() => _likesResult = _importLabel(data));
+      case Err(:final message, :final statusCode):
+        if (statusCode == 403) {
+          ref.invalidate(ytConnectedProvider);
+          ref.invalidate(ytPlaylistsProvider);
+        } else {
+          setState(() => _likesError = message);
+        }
     }
     setState(() => _likesLoading = false);
   }
@@ -89,13 +93,25 @@ class _YoutubeScreenState extends ConsumerState<YoutubeScreen> with WidgetsBindi
     if (!mounted) return;
     switch (res) {
       case Ok(:final data):
-        final count = (data is Map) ? data['imported'] ?? data['count'] : null;
-        setState(() => _playlistResult[playlist.id] =
-            count != null ? '$count titres importés' : 'Playlist importée');
-      case Err(:final message):
-        setState(() => _playlistError[playlist.id] = message);
+        setState(() => _playlistResult[playlist.id] = _importLabel(data));
+      case Err(:final message, :final statusCode):
+        if (statusCode == 403) {
+          ref.invalidate(ytPlaylistsProvider);
+        } else {
+          setState(() => _playlistError[playlist.id] = message);
+        }
     }
     setState(() => _playlistLoading[playlist.id] = false);
+  }
+
+  static String _importLabel(dynamic data) {
+    if (data is! Map) return 'Importé';
+    final matched = data['matched'];
+    final total = data['total'];
+    final notFound = (data['not_found'] as List?)?.length ?? 0;
+    if (matched == null || total == null) return 'Importé';
+    return '$matched/$total titres importés'
+        '${notFound > 0 ? ' · $notFound non trouvés' : ''}';
   }
 
   void _showError(String msg) {
@@ -223,7 +239,9 @@ class _ConnectedView extends ConsumerWidget {
               padding: EdgeInsets.all(32),
               child: Center(child: CircularProgressIndicator(color: kAccent)),
             ),
-            error: (_, _) => _ErrorView(onRetry: () => ref.invalidate(ytPlaylistsProvider)),
+            error: (err, _) => err is YoutubeNeedsReconnectException
+                ? _NeedsReconnectView(s)
+                : _ErrorView(onRetry: () => ref.invalidate(ytPlaylistsProvider)),
             data: (playlists) => playlists.isEmpty
                 ? const Padding(
                     padding: EdgeInsets.all(32),
@@ -388,6 +406,38 @@ class _ResultChip extends StatelessWidget {
             fontSize: 12,
             fontWeight: FontWeight.w500,
           ),
+        ),
+      );
+}
+
+class _NeedsReconnectView extends StatelessWidget {
+  final _YoutubeScreenState s;
+  const _NeedsReconnectView(this.s);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.link_off, size: 40, color: kTextSecondary),
+            const SizedBox(height: 12),
+            const Text(
+              'Ta connexion YouTube a expiré.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: kTextSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: s._connectLoading ? null : s._connect,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF0000),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Reconnecter YouTube'),
+            ),
+          ],
         ),
       );
 }

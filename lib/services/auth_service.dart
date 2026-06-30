@@ -1,8 +1,6 @@
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../config/api_config.dart';
 import 'api_client.dart';
-
-final _googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
 
 /// Erreur d'authentification avec message lisible pour l'UI.
 class AuthException implements Exception {
@@ -62,28 +60,14 @@ class AuthService {
     }
   }
 
-  /// Connexion via compte Google : ouvre le sélecteur de compte Google,
-  /// récupère le `idToken` et l'envoie à Symfony qui vérifie + retourne un JWT mkzik.
-  /// `POST /api/auth/google` body {id_token} → {token}
-  static Future<String> loginWithGoogle() async {
-    // Déconnecte toute session Google précédente pour forcer le sélecteur de compte
-    await _googleSignIn.signOut();
-
-    final account = await _googleSignIn.signIn();
-    if (account == null) throw AuthException('Connexion Google annulée');
-
-    final auth = await account.authentication;
-    final idToken = auth.idToken;
-    if (idToken == null || idToken.isEmpty) {
-      throw AuthException('Token Google invalide, réessaie');
+  /// Connexion via compte Google : ouvre le navigateur sur `GET /connect/google`.
+  /// Symfony redirige vers Google, puis rappelle l'app via deep link
+  /// `mkzik://auth/google/callback?token=<jwt>` capturé par AuthGate.
+  static Future<void> openGoogleConnect() async {
+    final uri = Uri.parse('${ApiConfig.baseUrl}connect/google');
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      throw AuthException('Impossible d\'ouvrir le navigateur');
     }
-
-    final res = await ApiClient.postUri(
-      _api('api/auth/google'),
-      body: {'id_token': idToken},
-      auth: false,
-    );
-    return _tokenOrThrow(res, fallbackError: 'Connexion Google échouée');
   }
 
   static Uri _api(String path) => Uri.parse('${ApiConfig.baseUrl}$path');
