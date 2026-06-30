@@ -112,11 +112,10 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
 
     // Bouton/mode LYRICS :
     //  • interne → flag serveur `track.hasLyrics`.
-    //  • externe → toujours tentable (le fetch `/lyrics?url=` retourne `found: false`
-    //    si pas de paroles — la sonde via /stream a été supprimée car elle ouvrait une
-    //    connexion concurrente sur le même flux yt-dlp et provoquait des sauts prématurés).
-    final isExternal = track.source.isNotEmpty && track.pageUrl.isNotEmpty;
-    final canTryLyrics = track.hasLyrics || isExternal;
+    //  • interne ou externe `in_mkzik` → flag Symfony `has_lyrics`.
+    //  • externe pur (flux Python) → toujours tentable ; `/lyrics?url=` retourne
+    //    `found: false` si pas de paroles.
+    final canTryLyrics = track.hasLyrics || track.needsStream;
     final showLyrics = _showLyrics && canTryLyrics;
 
     // Bloc titre + artiste, partagé entre le mode léger et le mode paroles.
@@ -417,11 +416,11 @@ class _CurrentLyricsLine extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final Lyrics? lyrics;
-    if (track.source.isEmpty && track.apiId != null) {
-      // Track interne → route Symfony par id
+    if (track.isSymfonyPlayable && track.apiId != null) {
+      // Interne ou externe déjà dans la BD → route Symfony par id
       lyrics = ref.watch(lyricsProvider(track.apiId!)).valueOrNull;
     } else if (track.pageUrl.isNotEmpty) {
-      // Track externe en flux direct → route Python (url + artist/title)
+      // Externe pur (flux direct Python)
       lyrics = ref.watch(lyricsUrlProvider(track)).valueOrNull;
     } else {
       return const SizedBox.shrink();

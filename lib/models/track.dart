@@ -17,6 +17,7 @@ class Track {
   final DateTime? publishedAt; // date de publication (null si inconnue)
   final bool hasLyrics; // flag léger (listes/détail) → active le bouton LYRICS
   final bool lyricsSynced; // des paroles synchronisées (karaoké) sont dispo
+  final bool inMkzik; // track externe déjà présente dans la BD Mkzik (Symfony)
 
   const Track({
     required this.id,
@@ -35,6 +36,7 @@ class Track {
     this.publishedAt,
     this.hasLyrics = false,
     this.lyricsSynced = false,
+    this.inMkzik = false,
   });
 
   bool get hasCover => coverUrl.isNotEmpty;
@@ -43,6 +45,13 @@ class Track {
   /// (cf. React : `if (track.source)`). Les tracks internes/intégrés ont source vide.
   bool get needsImport => source.isNotEmpty;
   bool get isExternal => needsImport;
+
+  /// Peut être lue via Symfony (URL signée) : track intégrée OU externe déjà dans la BD.
+  bool get isSymfonyPlayable => source.isEmpty || inMkzik;
+
+  /// Doit être lue via le flux temps réel Python (`/stream?url=`) :
+  /// externe ET pas encore dans la BD Mkzik.
+  bool get needsStream => needsImport && !inMkzik;
 
   /// URL audio directement jouable ? (sinon il faut une URL signée)
   bool get hasPlayableUrl => audioUrl.startsWith('http');
@@ -113,6 +122,7 @@ class Track {
       publishedAt: _parseDate(j['publication_date']),
       hasLyrics: j['has_lyrics'] == true,
       lyricsSynced: j['lyrics_synced'] == true,
+      inMkzik: j['in_mkzik'] == true,
     );
   }
 
@@ -143,6 +153,7 @@ class Track {
         publishedAt: publishedAt,
         hasLyrics: hasLyrics,
         lyricsSynced: lyricsSynced,
+        inMkzik: inMkzik,
       );
 
   @override

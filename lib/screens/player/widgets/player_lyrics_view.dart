@@ -16,11 +16,11 @@ class LyricsView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final AsyncValue<Lyrics?> async;
-    if (track.source.isEmpty && track.apiId != null) {
-      // Track interne (intégrée en BD) → route Symfony par id
+    if (track.isSymfonyPlayable && track.apiId != null) {
+      // Interne ou externe `in_mkzik` → route Symfony par id
       async = ref.watch(lyricsProvider(track.apiId!));
     } else if (track.pageUrl.isNotEmpty) {
-      // Track externe en flux direct → route Python (url + artist/title)
+      // Externe pur (flux Python)
       async = ref.watch(lyricsUrlProvider(track));
     } else {
       return const _LyricsMessage('Paroles indisponibles');

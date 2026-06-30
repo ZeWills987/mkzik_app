@@ -372,47 +372,41 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final urls = q
         .skip(idx + 1)
         .take(2)
-        .where((t) => t.needsImport && t.pageUrl.isNotEmpty)
+        .where((t) => t.needsStream && t.pageUrl.isNotEmpty)
         .map((t) => t.pageUrl)
         .toList();
     await StreamService.prepare(urls);
   }
 
-  /// Rend un track réellement jouable (cf. React `handleClicTrack`) :
-  /// 1. externe non intégré (`needsImport`) → **lecture en stream temps réel**
-  ///    (`GET /stream?url=`), jamais d'import S3 automatique. L'import dans Mkzik
-  ///    reste une action explicite (bouton "Importer"), pas un effet de bord du play.
-  /// 2. si pas d'URL audio directe (http) → URL signée via `api/tracks/{id}/audio`
+  /// Rend un track réellement jouable :
+  /// • `isSymfonyPlayable` (interne OU externe `in_mkzik`) → URL signée Symfony.
+  /// • `needsStream` (externe pur, non dans la BD) → flux temps réel Python.
+  ///   L'import S3 reste une action explicite (bouton), jamais un effet de bord du play.
   Future<Track?> _resolvePlayable(Track track) async {
     var t = track;
 
-    // 1) Externes non intégrés → stream direct depuis l'URL de page (pas d'import).
-    if (t.needsImport) {
-      if (t.pageUrl.isEmpty) return null; // injouable en stream sans URL d'origine
+    if (t.needsStream) {
+      if (t.pageUrl.isEmpty) return null;
       return t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
     }
 
-    // 2) URL signée si l'audio n'est pas directement jouable
+    // Symfony : URL signée si l'audio n'est pas directement jouable
     if (!t.hasPlayableUrl && t.apiId != null) {
       final signed = await TrackService.getSignedAudioUrl(t.apiId!);
-      if (signed != null && signed.isNotEmpty) {
-        t = t.copyWith(audioUrl: signed);
-      }
+      if (signed != null && signed.isNotEmpty) t = t.copyWith(audioUrl: signed);
     }
 
     return t.audioUrl.isNotEmpty ? t : null;
   }
 
-  /// Résolution légère pour les autres titres de la file (préchargement) : signe
-  /// l'URL des internes et donne aux externes leur URL de flux temps réel (jamais
-  /// d'import). Renvoie null pour les titres injouables → exclus de la playlist.
+  /// Résolution légère pour les autres titres de la file (préchargement).
+  /// Même logique que [_resolvePlayable] : Symfony pour `isSymfonyPlayable`,
+  /// flux Python pour `needsStream`. Renvoie null si injouable.
   Future<Track?> _resolveForQueue(Track t) async {
     if (t.hasPlayableUrl) return t;
-    if (t.needsImport) {
-      if (t.pageUrl.isNotEmpty) {
-        return t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
-      }
-      return null; // externe sans URL d'origine → injouable en stream
+    if (t.needsStream) {
+      if (t.pageUrl.isNotEmpty) return t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
+      return null;
     }
     if (t.apiId != null) {
       final signed = await TrackService.getSignedAudioUrl(t.apiId!);
