@@ -30,14 +30,11 @@ class PlayerModal extends ConsumerStatefulWidget {
   const PlayerModal({super.key});
 
   /// Ouvre le modal en bottom-sheet plein écran avec animation de montée.
-  /// Sur desktop, le voile est allégé : le player se décale de la largeur de la
-  /// sidebar (cf. build) qui reste ainsi visible à gauche.
   static Future<void> open(BuildContext context) {
-    final wide = MediaQuery.of(context).size.width >= 800;
     return Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
-        barrierColor: wide ? Colors.black.withValues(alpha: 0.20) : Colors.black54,
+        barrierColor: Colors.black54,
         transitionDuration: const Duration(milliseconds: 350),
         reverseTransitionDuration: const Duration(milliseconds: 280),
         pageBuilder: (ctx, anim, secAnim) => const PlayerModal(),
@@ -109,9 +106,6 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
     final accentLight = _lighten(accent, 0.18);
     final coverUrl = mediaUrl(track.coverUrl);
     final screenH = MediaQuery.of(context).size.height;
-    // Desktop : on décale le player de la largeur de la sidebar (220) pour la
-    // laisser visible à gauche. Mobile : aucun décalage.
-    final sidebarInset = MediaQuery.of(context).size.width >= 800 ? 220.0 : 0.0;
     // Pochette : pilotée par la largeur (max 300) MAIS bornée par la hauteur
     // réellement disponible une fois le socle fixe déduit (top bar + titre +
     // panneau de contrôle ≈ 500px). Sur une fenêtre courte (desktop) la pochette
@@ -175,9 +169,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
         offset: Offset(0, _dragOffset),
         child: Opacity(
           opacity: (1 - dragT * 0.7).clamp(0.0, 1.0),
-          child: Padding(
-            padding: EdgeInsets.only(left: sidebarInset),
-            child: Scaffold(
+          child: Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
@@ -426,7 +418,6 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
           ),
         ],
       ),
-          ),
           ),
         ),
       ),
