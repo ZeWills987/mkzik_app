@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:google_sign_in/google_sign_in.dart';
 import '../config/api_config.dart';
 import '../models/yt_playlist.dart';
@@ -34,6 +36,9 @@ class YoutubeService {
   ///
   /// Retourne `false` si l'utilisateur annule le sélecteur de compte.
   static Future<bool> connect() async {
+    if (!(Platform.isAndroid || Platform.isIOS)) {
+      throw Exception('Connexion YouTube disponible uniquement sur mobile pour le moment.');
+    }
     await _googleSignIn.signOut(); // force la sélection de compte
     final account = await _googleSignIn.signIn();
     if (account == null) return false;
