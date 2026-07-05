@@ -163,12 +163,13 @@ class LyricsFullscreen extends StatelessWidget {
             ),
           ),
         ),
-        // Panneau droit : paroles
+        // Panneau droit : paroles agrandies pour remplir l'espace desktop
         Expanded(
           flex: 3,
           child: Padding(
             padding: const EdgeInsets.only(right: 24),
-            child: LyricsView(track: track, accent: accent, accentLight: accentLight),
+            child: LyricsView(
+                track: track, accent: accent, accentLight: accentLight, fontScale: 1.6),
           ),
         ),
       ],
