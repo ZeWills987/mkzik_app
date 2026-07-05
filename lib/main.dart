@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -19,13 +21,18 @@ Future<void> main() async {
   // fileNotFound ignoré → on retombe sur les valeurs par défaut d'ApiConfig.
   await dotenv.load(fileName: '.env', isOptional: true);
 
-  // Contrôles média lockscreen + notification (just_audio_background)
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'fr.mkzik.audio',
-    androidNotificationChannelName: 'Lecture Mkzik',
-    androidNotificationOngoing: true,
-    androidNotificationIcon: 'mipmap/ic_launcher',
-  );
+  // Contrôles média lockscreen + notification (just_audio_background).
+  // Mobile uniquement : just_audio_background n'a pas de support desktop et
+  // détournerait la création du player (→ MissingPluginException sur Windows).
+  // Sur desktop, just_audio utilise directement son backend natif (just_audio_windows).
+  if (Platform.isAndroid || Platform.isIOS) {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'fr.mkzik.audio',
+      androidNotificationChannelName: 'Lecture Mkzik',
+      androidNotificationOngoing: true,
+      androidNotificationIcon: 'mipmap/ic_launcher',
+    );
+  }
 
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,

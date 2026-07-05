@@ -1,6 +1,10 @@
 # Environnement (ne pas committer les URLs/secrets — garder .env.example)
 .env
 
+# Secrets Google OAuth (client_secret téléchargé depuis Google Cloud Console)
+**/client_secret_*.json
+google-services.json
+
 # Miscellaneous
 *.class
 *.log
