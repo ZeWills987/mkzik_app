@@ -42,6 +42,9 @@ dependencies:
   smtc_windows: ^1.0.1
   # Aligné sur la version de codegen de smtc_windows 1.1.0 (sinon mismatch runtime).
   flutter_rust_bridge: 2.11.1
+  # WebView Windows (WebView2) : login Google desktop via flow web /connect/google
+  # (on intercepte la redirection /auth/google/callback?token=). Windows-only.
+  webview_windows: ^0.4.0
   audio_session: ^0.1.21
   cached_network_image: ^3.3.1
   http: ^1.2.2

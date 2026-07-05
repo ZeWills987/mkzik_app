@@ -1,18 +1,33 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
 import 'auth_widgets.dart';
 import 'register_screen.dart';
+import 'windows_google_auth.dart';
 
 class _GoogleButton extends ConsumerWidget {
   final bool loading;
   const _GoogleButton({required this.loading});
 
+  // Windows : flow web dans une WebView intégrée (le SDK Google ne gère pas le
+  // desktop). Mobile : SDK Google Sign-In natif via le provider.
+  Future<void> _onPressed(BuildContext context, WidgetRef ref) async {
+    if (Platform.isWindows) {
+      final token = await WindowsGoogleAuth.open(context);
+      if (token != null && token.isNotEmpty) {
+        await ref.read(authProvider.notifier).applyNewToken(token);
+      }
+      return;
+    }
+    await ref.read(authProvider.notifier).loginWithGoogle();
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return OutlinedButton(
-      onPressed: loading ? null : () => ref.read(authProvider.notifier).loginWithGoogle(),
+      onPressed: loading ? null : () => _onPressed(context, ref),
       style: OutlinedButton.styleFrom(
         foregroundColor: kTextPrimary,
         side: const BorderSide(color: kBorder),
