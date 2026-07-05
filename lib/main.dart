@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:smtc_windows/smtc_windows.dart';
 import 'navigation/app_nav.dart';
 import 'navigation/app_nav_impl.dart';
 import 'screens/auth/auth_gate.dart';
@@ -32,6 +33,11 @@ Future<void> main() async {
       androidNotificationOngoing: true,
       androidNotificationIcon: 'mipmap/ic_launcher',
     );
+  }
+
+  // Contrôles média système Windows (SMTC) : init du bridge natif.
+  if (Platform.isWindows) {
+    await SMTCWindows.initialize();
   }
 
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(

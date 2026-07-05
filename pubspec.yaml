@@ -37,6 +37,9 @@ dependencies:
   just_audio_background: ^0.0.1-beta.15
   # Backend audio natif Windows pour just_audio (fédéré : ne s'active que sur Windows).
   just_audio_windows: ^0.2.2
+  # Contrôles média système Windows (SMTC) : overlay touches média + panneau média.
+  # Plugin Windows-only (flutter_rust_bridge) → aucun impact sur les builds mobiles.
+  smtc_windows: ^1.0.1
   audio_session: ^0.1.21
   cached_network_image: ^3.3.1
   http: ^1.2.2
