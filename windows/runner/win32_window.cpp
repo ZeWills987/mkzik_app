@@ -216,6 +216,16 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);
       return 0;
+
+    case WM_GETMINMAXINFO: {
+      // Taille minimale de la fenêtre (logique 640x600, mise à l'échelle DPI).
+      // Empêche de réduire la fenêtre au point de faire déborder le layout Flutter.
+      auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+      double scale_factor = GetDpiForWindow(hwnd) / 96.0;
+      info->ptMinTrackSize.x = Scale(640, scale_factor);
+      info->ptMinTrackSize.y = Scale(600, scale_factor);
+      return 0;
+    }
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);

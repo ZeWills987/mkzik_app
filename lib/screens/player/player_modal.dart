@@ -295,9 +295,14 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                 ],
 
                 // ── Panneau "liquid glass" : toutes les commandes ────────────
+                // Largeur bornée + centré : sur desktop (fenêtre large) le panneau
+                // ne s'étire pas ; sur mobile la borne dépasse l'écran → sans effet.
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _glassPanel(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 460),
+                      child: _glassPanel(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
                       child: Column(
@@ -387,6 +392,8 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                           ),
                         ],
                       ),
+                    ),
+                  ),
                     ),
                   ),
                 ),
