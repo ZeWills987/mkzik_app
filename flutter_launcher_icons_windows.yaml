@@ -1,0 +1,8 @@
+# Config dédiée : génère UNIQUEMENT l'icône Windows (ne touche pas au mobile).
+# Lancer : flutter pub run flutter_launcher_icons -f flutter_launcher_icons_windows.yaml
+flutter_launcher_icons:
+  image_path: "assets/icon/icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    icon_size: 256
