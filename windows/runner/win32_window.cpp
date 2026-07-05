@@ -223,7 +223,7 @@ Win32Window::MessageHandler(HWND hwnd,
       auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
       double scale_factor = GetDpiForWindow(hwnd) / 96.0;
       info->ptMinTrackSize.x = Scale(640, scale_factor);
-      info->ptMinTrackSize.y = Scale(600, scale_factor);
+      info->ptMinTrackSize.y = Scale(640, scale_factor);
       return 0;
     }
   }
