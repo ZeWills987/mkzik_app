@@ -1,6 +1,10 @@
 # Environnement (ne pas committer les URLs/secrets — garder .env.example)
 .env
 
+# Secrets Google OAuth (client_secret téléchargé depuis Google Cloud Console)
+**/client_secret_*.json
+google-services.json
+
 # Miscellaneous
 *.class
 *.log
@@ -49,3 +53,4 @@ app.*.map.json
 
 # Compteur de build auto-incrémenté (versionCode) — local
 android/app/version.properties
+android/app/google-services.json

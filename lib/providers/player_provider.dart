@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:audio_session/audio_session.dart';
+// SMTC : contrôles média système Windows. On masque RepeatMode (défini localement).
+import 'package:smtc_windows/smtc_windows.dart' hide RepeatMode;
 import '../config/api_config.dart';
 import '../models/track.dart';
 import '../services/track_service.dart';
@@ -111,8 +114,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   // (insertions d'hydratation, reconstruction radio) pour éviter les faux "track changed".
   bool _suppressIndexChange = false;
 
+  // Contrôles média système Windows (SMTC) — null sur mobile.
+  SMTCWindows? _smtc;
+
   PlayerNotifier(this._ref) : super(const PlayerState()) {
     _initAudioSession();
+    if (Platform.isWindows) _initSmtc();
 
     // Écoute de la position en temps réel
     _audio.positionStream.listen((pos) {
@@ -133,6 +140,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // Sync isPlaying avec l'état réel du player
     _audio.playerStateStream.listen((ps) {
       state = state.copyWith(isPlaying: ps.playing);
+      _smtc?.setPlaybackStatus(ps.playing ? PlaybackStatus.playing : PlaybackStatus.paused);
     });
 
     // Boucle de file par défaut → prev/next cycliques et stables dans la notif.
@@ -174,6 +182,49 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     );
   }
 
+  // ── Contrôles média système Windows (SMTC) ─────────────────────────────────
+
+  // Initialise SMTC et branche les boutons (touches média / panneau média) sur
+  // le player. Windows uniquement — jamais appelé sur mobile.
+  void _initSmtc() {
+    _smtc = SMTCWindows(
+      config: const SMTCConfig(
+        playEnabled: true,
+        pauseEnabled: true,
+        nextEnabled: true,
+        prevEnabled: true,
+        stopEnabled: false,
+        fastForwardEnabled: false,
+        rewindEnabled: false,
+      ),
+    );
+    _smtc!.buttonPressStream.listen((event) {
+      switch (event) {
+        case PressedButton.play:
+        case PressedButton.pause:
+          togglePlayPause();
+        case PressedButton.next:
+          next();
+        case PressedButton.previous:
+          previous();
+        default:
+          break;
+      }
+    });
+  }
+
+  // Met à jour les métadonnées affichées par Windows (titre, artiste, pochette).
+  void _updateSmtcMetadata(Track t) {
+    final smtc = _smtc;
+    if (smtc == null) return;
+    final cover = mediaUrl(t.coverUrl);
+    smtc.updateMetadata(MusicMetadata(
+      title: t.title,
+      artist: t.artist,
+      thumbnail: cover.isNotEmpty ? cover : null,
+    ));
+  }
+
   // Resync quand le moteur change d'index (y compris via les boutons de la notif).
   void _onCurrentIndexChanged(int? i) {
     if (_suppressIndexChange) return;
@@ -210,6 +261,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   // Démarre une écoute pour [t] (récupère le playId du backend).
   Future<void> _beginPlay(Track t) async {
+    _updateSmtcMetadata(t); // met à jour le panneau média Windows (no-op ailleurs)
     _playTrack = t;
     _playMaxMs = 0;
     _playId = null;
@@ -672,6 +724,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   @override
   void dispose() {
     unawaited(_finishPlay()); // clôt l'écoute en cours
+    unawaited(_smtc?.dispose());
     _audio.dispose();
     super.dispose();
   }

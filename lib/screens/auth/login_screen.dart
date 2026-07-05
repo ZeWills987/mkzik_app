@@ -5,6 +5,105 @@ import '../../theme/app_theme.dart';
 import 'auth_widgets.dart';
 import 'register_screen.dart';
 
+class _GoogleButton extends ConsumerWidget {
+  final bool loading;
+  const _GoogleButton({required this.loading});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return OutlinedButton(
+      onPressed: loading ? null : () => ref.read(authProvider.notifier).loginWithGoogle(),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: kTextPrimary,
+        side: const BorderSide(color: kBorder),
+        minimumSize: const Size.fromHeight(48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        backgroundColor: kSurface,
+      ),
+      child: loading
+          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: kAccent))
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _GoogleLogo(),
+                const SizedBox(width: 12),
+                const Text('Continuer avec Google', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+              ],
+            ),
+    );
+  }
+}
+
+class _GoogleLogo extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      width: 20,
+      height: 20,
+      child: CustomPaint(painter: _GoogleLogoPainter()),
+    );
+  }
+}
+
+class _GoogleLogoPainter extends CustomPainter {
+  const _GoogleLogoPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final r = size.width / 2;
+
+    // Quadrants colorés (rouge, bleu, jaune, vert) simulés avec des arcs
+    final colors = [
+      const Color(0xFF4285F4), // bleu (haut droite)
+      const Color(0xFFEA4335), // rouge (haut gauche)
+      const Color(0xFFFBBC05), // jaune (bas gauche)
+      const Color(0xFF34A853), // vert (bas droite)
+    ];
+    final starts = [0.0, 90.0, 180.0, 270.0];
+
+    for (int i = 0; i < 4; i++) {
+      final paint = Paint()..color = colors[i]..style = PaintingStyle.fill;
+      canvas.drawArc(
+        Rect.fromCircle(center: Offset(cx, cy), radius: r),
+        _deg(starts[i]),
+        _deg(90),
+        true,
+        paint,
+      );
+    }
+
+    // Cercle blanc central
+    canvas.drawCircle(Offset(cx, cy), r * 0.55, Paint()..color = Colors.white);
+
+    // Lettre G simplifiée : un arc épais bleu
+    final gPaint = Paint()
+      ..color = const Color(0xFF4285F4)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.width * 0.15
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(cx, cy), radius: r * 0.38),
+      _deg(10),
+      _deg(320),
+      false,
+      gPaint,
+    );
+    // Trait horizontal du G
+    canvas.drawLine(
+      Offset(cx, cy),
+      Offset(cx + r * 0.38, cy),
+      gPaint..strokeWidth = size.width * 0.13,
+    );
+  }
+
+  double _deg(double d) => d * 3.14159265 / 180;
+
+  @override
+  bool shouldRepaint(covariant CustomPainter _) => false;
+}
+
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -99,6 +198,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ],
                 ),
                 const SizedBox(height: 20),
+
+                _GoogleButton(loading: auth.submitting),
+
+                const SizedBox(height: 24),
 
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,

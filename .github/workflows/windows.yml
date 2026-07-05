@@ -1,0 +1,89 @@
+name: Build Windows (Desktop)
+
+# Compile l'app Windows (release) et publie un ZIP dans une Release GitHub à tag
+# fixe (windows-latest) → URL de téléchargement stable pour la page index.html.
+# Le runner windows-latest fournit déjà Visual Studio (C++) et Rust/cargo, requis
+# respectivement par Flutter desktop et par le plugin smtc_windows.
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}   # lancement manuel possible
+
+permissions:
+  contents: write   # requis pour créer/mettre à jour la Release
+
+jobs:
+  build-windows:
+    # Ne se lance que si le message du commit contient [windows] ou [build]
+    # (ou via "Run workflow" manuel).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[windows]') ||
+      contains(github.event.head_commit.message, '[build]')
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historique complet + tags, requis pour les notes de version
+
+      # .env est déclaré comme asset mais pas committé (secret/local).
+      # On le recrée depuis le secret, sinon vide (URLs par défaut).
+      - name: Préparer le fichier .env
+        shell: bash
+        env:
+          ENV_FILE: ${{ secrets.MOBILE_ENV_FILE }}
+        run: |
+          if [ -n "$ENV_FILE" ]; then
+            printf '%s' "$ENV_FILE" > .env
+          else
+            touch .env
+          fi
+
+      - name: Installer Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.2
+          channel: stable
+          cache: true
+
+      - name: Activer le desktop Windows
+        run: flutter config --enable-windows-desktop
+
+      - name: Récupérer les dépendances
+        run: flutter pub get
+
+      - name: Build Windows (release)
+        run: flutter build windows --release --build-number=${{ github.run_number }}
+
+      # Empaquette tout le dossier Release (exe + DLL + data) en un seul ZIP.
+      - name: Empaqueter en ZIP
+        shell: pwsh
+        run: |
+          $src = "build/windows/x64/runner/Release"
+          Compress-Archive -Path "$src/*" -DestinationPath "Mkzik-windows.zip" -Force
+
+      # Notes de version = commits feat/fix/style/refactor depuis le tag précédent.
+      - name: Générer les notes de version
+        shell: bash
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | head -1 | sed -E 's/version: *([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          {
+            echo "# Mkzik Windows v$VERSION (build ${{ github.run_number }})"
+            echo
+            echo "Décompresse le ZIP et lance **mkzik_app.exe**."
+            echo
+            bash scripts/release_notes.sh
+          } > release_notes.md
+          cat release_notes.md
+
+      # Tag fixe "windows-latest" → l'URL du ZIP ne change jamais.
+      - name: Publier le ZIP dans une Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-latest
+          name: "Mkzik Windows (dernier build)"
+          body_path: release_notes.md
+          files: Mkzik-windows.zip

@@ -13,6 +13,7 @@ import '../services/track_service.dart';
 import '../services/playlist_service.dart';
 import '../theme/app_theme.dart';
 import '../navigation/app_nav.dart';
+import 'adaptive_sheet.dart';
 import 'track_cover.dart';
 
 /// Vignette carrée d'un track (cover réseau ou dégradé + note).
@@ -192,12 +193,8 @@ void showTrackActionsSheet(BuildContext context, WidgetRef ref, Track track) {
     );
   }
 
-  showModalBottomSheet(
+  showAdaptiveSheet(
     context: context,
-    backgroundColor: kSheetBg,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
     builder: (ctx) => _TrackMenuSheet(
       track: track,
       onPlayNext: () {
@@ -366,12 +363,8 @@ void showAddToPlaylistSheet(BuildContext context, WidgetRef ref, Track track) {
     ref.read(noticeProvider.notifier).show('Indisponible pour ce titre');
     return;
   }
-  showModalBottomSheet(
+  showAdaptiveSheet(
     context: context,
-    backgroundColor: kSheetBg,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
     builder: (_) => _AddToPlaylistSheet(track: track),
   );
 }

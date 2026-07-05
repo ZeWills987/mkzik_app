@@ -6,10 +6,6 @@ import '../shell/app_shell.dart';
 import 'auth_widgets.dart';
 import 'login_screen.dart';
 
-/// Aiguille l'utilisateur selon l'état d'authentification :
-/// - unknown        → splash (restauration du token)
-/// - authenticated  → application (AppShell)
-/// - unauthenticated→ écran de connexion
 class AuthGate extends ConsumerWidget {
   const AuthGate({super.key});
 
@@ -23,7 +19,6 @@ class AuthGate extends ConsumerWidget {
       AuthStatus.unauthenticated => const LoginScreen(),
     };
 
-    // Transition douce entre les états
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 300),
       child: KeyedSubtree(key: ValueKey(status), child: child),

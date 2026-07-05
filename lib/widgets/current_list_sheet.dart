@@ -3,17 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/track.dart';
 import '../providers/player_provider.dart';
 import '../theme/app_theme.dart';
+import 'adaptive_sheet.dart';
 import 'track_actions.dart';
 
-/// Ouvre la file d'attente (current list) en bottom sheet.
+/// Ouvre la file d'attente (current list) : bottom sheet sur mobile,
+/// dialog centré sur desktop.
 void showCurrentList(BuildContext context) {
-  showModalBottomSheet(
+  showAdaptiveSheet(
     context: context,
-    backgroundColor: kSheetBg,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
     builder: (_) => const _CurrentListSheet(),
   );
 }
@@ -29,15 +26,20 @@ class _CurrentListSheet extends ConsumerWidget {
     final currentIndex = ref.watch(playerProvider.select((s) => s.currentIndex));
     final isPlaying = ref.watch(playerProvider.select((s) => s.isPlaying));
     final notifier = ref.read(playerProvider.notifier);
-    final height = MediaQuery.of(context).size.height * 0.8;
+    // Hauteur cible : 80 % de l'écran (mobile), mais bornée par les contraintes
+    // du parent — en dialog desktop, le ConstrainedBox limite déjà à 75 %.
+    final screenTarget = MediaQuery.of(context).size.height * 0.8;
 
     final current = (currentIndex >= 0 && currentIndex < queue.length) ? queue[currentIndex] : null;
     final base = currentIndex + 1; // début de "À suivre"
     final List<Track> upcoming = base < queue.length ? queue.sublist(base) : <Track>[];
 
-    return SizedBox(
-      height: height,
-      child: SafeArea(
+    return LayoutBuilder(
+      builder: (context, constraints) => SizedBox(
+        height: constraints.maxHeight.isFinite
+            ? (screenTarget < constraints.maxHeight ? screenTarget : constraints.maxHeight)
+            : screenTarget,
+        child: SafeArea(
         top: false,
         child: Column(
           children: [
@@ -172,6 +174,7 @@ class _CurrentListSheet extends ConsumerWidget {
                 ),
               ),
           ],
+        ),
         ),
       ),
     );

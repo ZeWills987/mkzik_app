@@ -11,7 +11,16 @@ class LyricsView extends ConsumerWidget {
   final Track track;
   final Color accent;
   final Color accentLight;
-  const LyricsView({super.key, required this.track, required this.accent, required this.accentLight});
+  /// Facteur de taille du texte des paroles (1.0 = défaut mobile/inline).
+  /// Le plein écran desktop passe une valeur > 1 pour remplir l'espace.
+  final double fontScale;
+  const LyricsView({
+    super.key,
+    required this.track,
+    required this.accent,
+    required this.accentLight,
+    this.fontScale = 1.0,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -33,9 +42,10 @@ class LyricsView extends ConsumerWidget {
       data: (lyrics) {
         if (lyrics == null || lyrics.isEmpty) return const _LyricsMessage('Paroles indisponibles');
         if (lyrics.hasSyncedLines) {
-          return _SyncedLyrics(lines: lyrics.lines, accent: accent, accentLight: accentLight);
+          return _SyncedLyrics(
+            lines: lyrics.lines, accent: accent, accentLight: accentLight, fontScale: fontScale);
         }
-        return _PlainLyrics(text: lyrics.text);
+        return _PlainLyrics(text: lyrics.text, fontScale: fontScale);
       },
     );
   }
@@ -56,7 +66,8 @@ class _LyricsMessage extends StatelessWidget {
 /// Paroles non synchronisées : simple texte défilant.
 class _PlainLyrics extends StatelessWidget {
   final String text;
-  const _PlainLyrics({required this.text});
+  final double fontScale;
+  const _PlainLyrics({required this.text, this.fontScale = 1.0});
 
   @override
   Widget build(BuildContext context) {
@@ -65,7 +76,8 @@ class _PlainLyrics extends StatelessWidget {
       child: Text(
         text,
         textAlign: TextAlign.center,
-        style: const TextStyle(color: Colors.white70, fontSize: 16, height: 1.6, fontWeight: FontWeight.w500),
+        style: TextStyle(
+            color: Colors.white70, fontSize: 16 * fontScale, height: 1.6, fontWeight: FontWeight.w500),
       ),
     );
   }
@@ -77,7 +89,9 @@ class _SyncedLyrics extends ConsumerStatefulWidget {
   final List<LyricLine> lines;
   final Color accent;
   final Color accentLight;
-  const _SyncedLyrics({required this.lines, required this.accent, required this.accentLight});
+  final double fontScale;
+  const _SyncedLyrics({
+    required this.lines, required this.accent, required this.accentLight, this.fontScale = 1.0});
 
   @override
   ConsumerState<_SyncedLyrics> createState() => _SyncedLyricsState();
@@ -150,7 +164,7 @@ class _SyncedLyricsState extends ConsumerState<_SyncedLyrics> {
     // ⚠️ Géométrie CONSTANTE (même taille + graisse pour toutes les lignes) :
     // la ligne active ne change pas de dimensions → aucun retour à la ligne qui
     // « saute ». L'emphase passe uniquement par la couleur (dégradé façon titre).
-    const style = TextStyle(fontSize: 19, height: 1.4, fontWeight: FontWeight.w700);
+    final style = TextStyle(fontSize: 19 * widget.fontScale, height: 1.4, fontWeight: FontWeight.w700);
 
     Widget text = AnimatedDefaultTextStyle(
       duration: const Duration(milliseconds: 220),

@@ -35,6 +35,13 @@ dependencies:
   flutter_riverpod: ^2.5.1
   just_audio: ^0.9.40
   just_audio_background: ^0.0.1-beta.15
+  # Backend audio natif Windows pour just_audio (fédéré : ne s'active que sur Windows).
+  just_audio_windows: ^0.2.2
+  # Contrôles média système Windows (SMTC) : overlay touches média + panneau média.
+  # Plugin Windows-only (flutter_rust_bridge) → aucun impact sur les builds mobiles.
+  smtc_windows: ^1.0.1
+  # Aligné sur la version de codegen de smtc_windows 1.1.0 (sinon mismatch runtime).
+  flutter_rust_bridge: 2.11.1
   audio_session: ^0.1.21
   cached_network_image: ^3.3.1
   http: ^1.2.2
@@ -44,6 +51,8 @@ dependencies:
   image_picker: ^1.1.2
   package_info_plus: ^8.0.2
   url_launcher: ^6.3.0
+  app_links: ^6.3.4
+  google_sign_in: ^6.2.2
 
 dev_dependencies:
   flutter_test:
