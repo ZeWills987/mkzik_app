@@ -21,7 +21,15 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.head_commit.message, '[windows]') ||
       contains(github.event.head_commit.message, '[build]')
-    runs-on: windows-latest
+    # windows-2022 = Visual Studio 2022 (MSVC 17.x). On évite windows-latest qui
+    # est passé à VS 18 / MSVC 14.51 : celui-ci transforme <experimental/coroutine>
+    # (utilisé par just_audio_windows) en erreur fatale et casse cargokit (smtc).
+    runs-on: windows-2022
+
+    # Silence le static_assert STL1011 (coroutine dépréciée) pour toutes les
+    # compilations cl.exe → just_audio_windows compile même sur MSVC récent.
+    env:
+      CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
 
     steps:
       - name: Checkout du code
