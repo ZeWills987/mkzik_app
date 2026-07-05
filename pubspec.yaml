@@ -40,6 +40,8 @@ dependencies:
   # Contrôles média système Windows (SMTC) : overlay touches média + panneau média.
   # Plugin Windows-only (flutter_rust_bridge) → aucun impact sur les builds mobiles.
   smtc_windows: ^1.0.1
+  # Aligné sur la version de codegen de smtc_windows 1.1.0 (sinon mismatch runtime).
+  flutter_rust_bridge: 2.11.1
   audio_session: ^0.1.21
   cached_network_image: ^3.3.1
   http: ^1.2.2
