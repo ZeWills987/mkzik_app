@@ -154,17 +154,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
 
-    return Scaffold(
-      backgroundColor: kBg,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: Column(
+    return AuthScaffold(
+      form: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Center(child: MkzikLogo(size: 38)),
-                const SizedBox(height: 40),
                 const Text('Connexion',
                     style: TextStyle(color: kTextPrimary, fontSize: 26, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
@@ -236,9 +229,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
               ],
             ),
-          ),
-        ),
-      ),
     );
   }
 }

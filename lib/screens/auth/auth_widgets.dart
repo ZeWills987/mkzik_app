@@ -1,6 +1,131 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 
+/// Ossature responsive des écrans d'auth (login / register).
+/// - mobile / fenêtre étroite : formulaire centré, logo au-dessus.
+/// - desktop / fenêtre large  : panneau de marque à gauche + formulaire contraint
+///   à droite (mise en page « produit » classique).
+///
+/// [form] est le contenu du formulaire (titre, champs, boutons…) SANS le logo :
+/// l'ossature place le logo elle-même selon la disposition.
+class AuthScaffold extends StatelessWidget {
+  final Widget form;
+  /// Si fourni, affiche un bouton retour en haut à gauche (écrans poussés).
+  final VoidCallback? onBack;
+  const AuthScaffold({super.key, required this.form, this.onBack});
+
+  static const double _wideBreakpoint = 800;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBg,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth >= _wideBreakpoint;
+
+            final formArea = Center(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.symmetric(horizontal: wide ? 56 : 24, vertical: 32),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 380),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Logo au-dessus du formulaire seulement en mobile
+                      // (en desktop il est dans le panneau de marque).
+                      if (!wide) ...[
+                        const Center(child: MkzikLogo(size: 38)),
+                        const SizedBox(height: 40),
+                      ],
+                      form,
+                    ],
+                  ),
+                ),
+              ),
+            );
+
+            final Widget layout = wide
+                ? Row(
+                    children: [
+                      const Expanded(child: _AuthBrandPanel()),
+                      Expanded(child: formArea),
+                    ],
+                  )
+                : formArea;
+
+            if (onBack == null) return layout;
+
+            // Bouton retour superposé en haut à gauche (écrans poussés).
+            return Stack(
+              children: [
+                Positioned.fill(child: layout),
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: IconButton(
+                    icon: Icon(Icons.arrow_back, color: wide ? Colors.white : kTextPrimary),
+                    onPressed: onBack,
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// Panneau de marque affiché à gauche des écrans d'auth sur desktop.
+class _AuthBrandPanel extends StatelessWidget {
+  const _AuthBrandPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF2E2358), Color(0xFF201A3C), Color(0xFF15132A)],
+          stops: [0.0, 0.55, 1.0],
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(56),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const MkzikLogo(size: 52),
+            const SizedBox(height: 32),
+            const Text(
+              'Ton streaming musical,\nà l\'identité polynésienne.',
+              style: TextStyle(
+                color: kTextPrimary,
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                height: 1.25,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Découvre, écoute et partage tes titres — sur mobile comme sur desktop.',
+              style: TextStyle(
+                color: kTextPrimary.withValues(alpha: 0.65),
+                fontSize: 15,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Logo MKZIK réutilisé sur les écrans d'auth.
 class MkzikLogo extends StatelessWidget {
   final double size;

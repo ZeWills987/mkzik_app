@@ -88,24 +88,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     final auth = ref.watch(authProvider);
     final error = _localError ?? auth.error;
 
-    return Scaffold(
-      backgroundColor: kBg,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: kTextPrimary),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
-          child: Column(
+    return AuthScaffold(
+      onBack: () => Navigator.of(context).pop(),
+      form: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Center(child: MkzikLogo(size: 34)),
-              const SizedBox(height: 24),
               const Text('Inscription',
                   style: TextStyle(color: kTextPrimary, fontSize: 26, fontWeight: FontWeight.w800)),
               const SizedBox(height: 6),
@@ -203,8 +190,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               AuthButton(label: "S'inscrire", loading: auth.submitting, onPressed: _submit),
             ],
           ),
-        ),
-      ),
     );
   }
 }
