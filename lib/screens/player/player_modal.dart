@@ -105,9 +105,15 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
     final accent = track.accent;
     final accentLight = _lighten(accent, 0.18);
     final coverUrl = mediaUrl(track.coverUrl);
-    final artSize = (MediaQuery.of(context).size.width * 0.58).clamp(150.0, 300.0);
-
     final screenH = MediaQuery.of(context).size.height;
+    // Pochette : pilotée par la largeur (max 300) MAIS bornée par la hauteur
+    // réellement disponible une fois le socle fixe déduit (top bar + titre +
+    // panneau de contrôle ≈ 500px). Sur une fenêtre courte (desktop) la pochette
+    // rétrécit au lieu de faire déborder ; sur mobile (fenêtre haute) c'est la
+    // largeur qui pilote → rendu identique à avant.
+    final availForCover = (screenH - 500).clamp(150.0, 300.0);
+    final artSize = (MediaQuery.of(context).size.width * 0.58).clamp(150.0, availForCover);
+
     final dragT = (_dragOffset / screenH).clamp(0.0, 1.0);
 
     // Bouton/mode LYRICS :
@@ -147,7 +153,15 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
       ),
     );
 
-    return GestureDetector(
+    return CallbackShortcuts(
+      // Échap ferme le player (desktop / clavier)
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+      },
+      child: Focus(
+        autofocus: true,
+        child: GestureDetector(
       // Glisser vers le bas n'importe où sur le fond pour fermer
       onVerticalDragUpdate: _onDragUpdate,
       onVerticalDragEnd: _onDragEnd,
@@ -405,6 +419,8 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
         ],
       ),
           ),
+        ),
+      ),
         ),
       ),
     );
