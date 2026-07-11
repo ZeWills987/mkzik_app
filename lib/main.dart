@@ -1,4 +1,5 @@
 import 'dart:io' show Platform;
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -59,6 +60,17 @@ class MkzikApp extends StatelessWidget {
       title: 'Mkzik',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
+      // Desktop : autorise le cliquer-glisser à la souris/trackpad sur les
+      // listes (carrousels horizontaux de l'accueil, files…) — le
+      // MaterialScrollBehavior par défaut n'inclut pas la souris.
+      scrollBehavior: const MaterialScrollBehavior().copyWith(
+        dragDevices: {
+          PointerDeviceKind.touch,
+          PointerDeviceKind.mouse,
+          PointerDeviceKind.stylus,
+          PointerDeviceKind.trackpad,
+        },
+      ),
       home: const AppVersionGate(child: AuthGate()),
     );
   }

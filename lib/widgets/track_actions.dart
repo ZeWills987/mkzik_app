@@ -14,6 +14,8 @@ import '../services/playlist_service.dart';
 import '../theme/app_theme.dart';
 import '../navigation/app_nav.dart';
 import 'adaptive_sheet.dart';
+import 'pex_badge.dart';
+import 'tappable.dart';
 import 'track_cover.dart';
 
 /// Vignette carrée d'un track (cover réseau ou dégradé + note).
@@ -89,14 +91,27 @@ class PlatformLogo extends StatelessWidget {
   }
 }
 
-/// Badge plateforme d'un track externe (logo seul, déduit de la source).
+/// Badge plateforme(s) d'origine d'un track — affiche un logo par plateforme
+/// identifiée (une track interne peut venir de YouTube ET SoundCloud).
 class PlatformBadge extends StatelessWidget {
   final Track track;
   final double size;
   const PlatformBadge({super.key, required this.track, this.size = 18});
 
   @override
-  Widget build(BuildContext context) => PlatformLogo(platform: track.extPlatform, size: size);
+  Widget build(BuildContext context) {
+    final platforms = track.extPlatforms;
+    if (platforms.isEmpty) return PlatformLogo(platform: track.extPlatform, size: size);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < platforms.length; i++) ...[
+          if (i > 0) const SizedBox(width: 5),
+          PlatformLogo(platform: platforms[i], size: size),
+        ],
+      ],
+    );
+  }
 }
 
 /// Ligne de résultat track (style page de recherche) — réutilisable.
@@ -132,7 +147,7 @@ class TrackResultRow extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Titre cliquable → page détaillée de la track
-                  GestureDetector(
+                  Tappable(
                     onTap: () => appNav.openTrack(context, track),
                     child: Text(track.title,
                         style: TextStyle(
@@ -147,7 +162,7 @@ class TrackResultRow extends ConsumerWidget {
                   Row(
                     children: [
                       Flexible(
-                        child: GestureDetector(
+                        child: Tappable(
                           onTap: track.artist.isEmpty ? null : () => appNav.openProfile(context, track.artist),
                           child: Text(track.artist,
                               style: const TextStyle(color: kTextSecondary, fontSize: 13),
@@ -156,6 +171,20 @@ class TrackResultRow extends ConsumerWidget {
                       ),
                       Text('  ·  ${track.durationFormatted}',
                           style: const TextStyle(color: kTextSecondary, fontSize: 13)),
+                      // Badge Mini-Pex (remix / slowed / mashup…) si présent.
+                      // Flexible + rétrécissement : jamais d'overflow sur les
+                      // écrans étroits, le badge se réduit en dernier recours.
+                      if (track.pexTag != null)
+                        Flexible(
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: PexBadge(tag: track.pexTag!, compact: true),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                   // Date de sortie en relatif (page search uniquement)
@@ -168,8 +197,9 @@ class TrackResultRow extends ConsumerWidget {
                 ],
               ),
             ),
-            if (track.isExternal) Padding(padding: const EdgeInsets.only(right: 6), child: PlatformBadge(track: track)),
-            GestureDetector(
+            // Logo plateforme d'origine — externes ET internes importées (platforms)
+            if (track.hasPlatformTag) Padding(padding: const EdgeInsets.only(right: 6), child: PlatformBadge(track: track)),
+            Tappable(
               onTap: onMenu,
               behavior: HitTestBehavior.opaque,
               child: const Padding(
@@ -294,8 +324,8 @@ class _TrackMenuSheet extends StatelessWidget {
                                 style: const TextStyle(color: kTextSecondary, fontSize: 12),
                                 maxLines: 1, overflow: TextOverflow.ellipsis),
                           ),
-                          if (external) const SizedBox(width: 8),
-                          if (external) PlatformBadge(track: track),
+                          if (track.hasPlatformTag) const SizedBox(width: 8),
+                          if (track.hasPlatformTag) PlatformBadge(track: track),
                         ],
                       ),
                     ],

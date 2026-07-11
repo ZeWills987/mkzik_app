@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/yt_playlist.dart';
 import '../../providers/youtube_provider.dart';
@@ -344,8 +345,13 @@ class _PlaylistCover extends StatelessWidget {
     if (url != null && url!.isNotEmpty) {
       return ClipRoundedRect(
         radius: 8,
-        child: Image.network(url!, width: 48, height: 48, fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => _placeholder()),
+        child: CachedNetworkImage(
+            imageUrl: url!,
+            width: 48,
+            height: 48,
+            fit: BoxFit.cover,
+            memCacheWidth: (48 * MediaQuery.devicePixelRatioOf(context)).round(),
+            errorWidget: (_, _, _) => _placeholder()),
       );
     }
     return _placeholder();

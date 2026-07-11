@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/player_provider.dart';
 import '../../widgets/mini_player.dart';
 import '../../widgets/notice_banner.dart';
+import '../../widgets/tappable.dart';
 import '../../theme/app_theme.dart';
 import '../home/home_screen.dart';
 import '../search/search_screen.dart';
@@ -14,6 +15,11 @@ final _tabIndexProvider = StateProvider<int>((ref) => 0);
 /// Au-delà de cette largeur, on bascule en disposition desktop (sidebar latérale).
 /// En-dessous (mobile / fenêtre étroite), on garde la barre de navigation basse.
 const double _kWideBreakpoint = 800;
+
+/// Hauteur "visuelle" de la bottom nav bar (hors safe-area, qui est ajoutée à
+/// part) — utilisée pour poser le mini-player flottant juste au-dessus, sans
+/// dépendre d'une mesure post-frame.
+const double _kNavBarContentHeight = 66;
 
 class AppShell extends ConsumerWidget {
   const AppShell({super.key});
@@ -32,7 +38,16 @@ class AppShell extends ConsumerWidget {
 
     void onTap(int i) => ref.read(_tabIndexProvider.notifier).state = i;
 
-    final content = IndexedStack(index: currentIndex, children: _pages);
+    // L'inset bas (gestes / barre système) est déjà géré par la nav bar basse,
+    // et l'inset clavier est déjà consommé par le Scaffold racine (qui remonte
+    // nav bar + mini player au-dessus du clavier). On retire les deux du
+    // MediaQuery vu par le contenu, sinon les Scaffold/SafeArea des pages
+    // les soustraient une 2e fois → contenu écrasé quand le clavier est ouvert.
+    final content = MediaQuery(
+      data: MediaQuery.of(context).removePadding(removeBottom: true).removeViewInsets(removeBottom: true),
+      child: IndexedStack(index: currentIndex, children: _pages),
+    );
+    final bottomSafeArea = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       backgroundColor: kBg,
@@ -42,15 +57,26 @@ class AppShell extends ConsumerWidget {
 
           if (isWide) {
             // ── Disposition desktop : sidebar à gauche, contenu à droite ──
+            // Pas de nav bar basse : le player flotte à faible distance du bord.
             return Row(
               children: [
                 _MkzikSideBar(currentIndex: currentIndex, onTap: onTap),
                 Expanded(
-                  child: Column(
+                  child: Stack(
                     children: [
-                      Expanded(child: content),
-                      const BottomBanners(),
-                      if (hasTrack) const MiniPlayer(),
+                      Positioned.fill(child: content),
+                      Positioned(
+                        left: 24,
+                        right: 24,
+                        bottom: 20,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const BottomBanners(),
+                            if (hasTrack) const MiniPlayer(),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -58,13 +84,28 @@ class AppShell extends ConsumerWidget {
             );
           }
 
-          // ── Disposition mobile : contenu plein + bottom nav ──
-          return Column(
+          // ── Disposition mobile : le contenu se cale sur la nav bar basse ;
+          // le player flotte par-dessus, détaché des bords (liquid glass).
+          return Stack(
             children: [
-              Expanded(child: content),
-              const BottomBanners(),
-              if (hasTrack) const MiniPlayer(),
-              _MkzikNavBar(currentIndex: currentIndex, onTap: onTap),
+              Column(
+                children: [
+                  Expanded(child: content),
+                  _MkzikNavBar(currentIndex: currentIndex, onTap: onTap),
+                ],
+              ),
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: _kNavBarContentHeight + bottomSafeArea + 12,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const BottomBanners(),
+                    if (hasTrack) const MiniPlayer(),
+                  ],
+                ),
+              ),
             ],
           );
         },
@@ -185,7 +226,7 @@ class _MkzikNavBar extends StatelessWidget {
           final item = _navItems[i];
           final isActive = i == currentIndex;
           return Expanded(
-            child: GestureDetector(
+            child: Tappable(
               onTap: () => onTap(i),
               behavior: HitTestBehavior.opaque,
               child: Column(

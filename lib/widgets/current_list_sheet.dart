@@ -76,49 +76,52 @@ class _CurrentListSheet extends ConsumerWidget {
               )
             else
               Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  children: [
+                // Slivers lazy : sans shrinkWrap, seules les lignes visibles de
+                // « À suivre » sont construites (une file de 200 titres
+                // n'instancie plus 200 lignes à l'ouverture du sheet).
+                child: CustomScrollView(
+                  slivers: [
                     // ── En lecture ──
-                    const _Label('EN LECTURE'),
-                    Container(
-                      color: kAccent.withValues(alpha: 0.08),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      child: Row(
-                        children: [
-                          TrackSquareThumb(track: current),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(current.title,
-                                    style: const TextStyle(color: kAccent, fontSize: 14, fontWeight: FontWeight.w700),
-                                    maxLines: 1, overflow: TextOverflow.ellipsis),
-                                const SizedBox(height: 2),
-                                Text(current.artist,
-                                    style: const TextStyle(color: kTextSecondary, fontSize: 12),
-                                    maxLines: 1, overflow: TextOverflow.ellipsis),
-                              ],
+                    const SliverToBoxAdapter(child: _Label('EN LECTURE')),
+                    SliverToBoxAdapter(
+                      child: Container(
+                        color: kAccent.withValues(alpha: 0.08),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        child: Row(
+                          children: [
+                            TrackSquareThumb(track: current),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(current.title,
+                                      style: const TextStyle(color: kAccent, fontSize: 14, fontWeight: FontWeight.w700),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  const SizedBox(height: 2),
+                                  Text(current.artist,
+                                      style: const TextStyle(color: kTextSecondary, fontSize: 12),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                                ],
+                              ),
                             ),
-                          ),
-                          Icon(isPlaying ? Icons.equalizer : Icons.pause, color: kAccent, size: 20),
-                        ],
+                            Icon(isPlaying ? Icons.equalizer : Icons.pause, color: kAccent, size: 20),
+                          ],
+                        ),
                       ),
                     ),
 
                     // ── À suivre ──
-                    const _Label('À SUIVRE'),
+                    const SliverToBoxAdapter(child: _Label('À SUIVRE')),
                     if (upcoming.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                        child: Text('Fin de la file', style: TextStyle(color: kTextSecondary, fontSize: 13)),
+                      const SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                          child: Text('Fin de la file', style: TextStyle(color: kTextSecondary, fontSize: 13)),
+                        ),
                       )
                     else
-                      ReorderableListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        buildDefaultDragHandles: false,
+                      SliverReorderableList(
                         itemCount: upcoming.length,
                         // ignore: deprecated_member_use
                         onReorder: (oldI, newI) => notifier.reorder(base + oldI, base + newI),
@@ -170,6 +173,7 @@ class _CurrentListSheet extends ConsumerWidget {
                           );
                         },
                       ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 16)),
                   ],
                 ),
               ),

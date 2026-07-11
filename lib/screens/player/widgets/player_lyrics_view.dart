@@ -138,8 +138,12 @@ class _SyncedLyricsState extends ConsumerState<_SyncedLyrics> {
 
   @override
   Widget build(BuildContext context) {
-    final posMs = ref.watch(playerProvider.select((s) => s.position)).inMilliseconds;
-    final active = _activeIndex(posMs);
+    // Select sur l'INDEX actif (pas la position brute) : la Column de lignes
+    // (AnimatedDefaultTextStyle + ShaderMask) ne rebuild qu'au changement de
+    // ligne — quelques fois/minute au lieu de 5-60 fois/seconde.
+    final active = ref.watch(
+      playerProvider.select((s) => _activeIndex(s.position.inMilliseconds)),
+    );
 
     // Auto-scroll uniquement quand la ligne active change (pas à chaque tick).
     if (active != _lastScrolled) {

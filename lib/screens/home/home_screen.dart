@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../widgets/mini_player.dart' show miniPlayerListPadding;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/track.dart';
 import '../../models/track_visuals.dart';
@@ -165,7 +167,8 @@ class HomeScreen extends ConsumerWidget {
                       ),
               ),
             ),
-            const SliverToBoxAdapter(child: SizedBox(height: 32)),
+            // Espace de fin : + hauteur du player flottant s'il est affiché
+            SliverToBoxAdapter(child: SizedBox(height: 32 + miniPlayerListPadding(ref))),
           ],
         ),
       ),
@@ -492,10 +495,11 @@ class _ArtistAvatar extends StatelessWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: mediaUrl(user.avatarUrl).isNotEmpty
-                  ? Image.network(
-                      mediaUrl(user.avatarUrl),
+                  ? CachedNetworkImage(
+                      imageUrl: mediaUrl(user.avatarUrl),
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stack) => _initial(initial),
+                      memCacheWidth: (72 * MediaQuery.devicePixelRatioOf(context)).round(),
+                      errorWidget: (context, u, error) => _initial(initial),
                     )
                   : _initial(initial),
             ),

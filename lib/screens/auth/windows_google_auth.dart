@@ -41,6 +41,12 @@ class _WindowsGoogleAuthState extends State<WindowsGoogleAuth> {
   Future<void> _init() async {
     try {
       await _controller.initialize();
+      // UA « navigateur classique » : évite un éventuel blocage WAF/serveur
+      // de l'User-Agent WebView2 par défaut (403 sur /connect/google/check).
+      await _controller.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      );
       _urlSub = _controller.url.listen(_onUrl);
       await _controller.loadUrl('${ApiConfig.baseUrl}connect/google');
       if (mounted) setState(() => _ready = true);
@@ -51,15 +57,20 @@ class _WindowsGoogleAuthState extends State<WindowsGoogleAuth> {
     }
   }
 
-  // Intercepte chaque changement d'URL : dès qu'on atteint la route de callback
-  // avec un token, on le récupère et on ferme.
+  // Intercepte chaque changement d'URL : dès qu'une URL porte un `token`
+  // (en query ?token= ou en fragment #token=), on le récupère et on ferme —
+  // quel que soit le chemin / la valeur de FRONTEND_URL.
   void _onUrl(String url) {
     if (_done) return;
     final uri = Uri.tryParse(url);
     if (uri == null) return;
-    final isCallback = uri.path.endsWith('/auth/google/callback');
-    final token = uri.queryParameters['token'];
-    if (isCallback && token != null && token.isNotEmpty) {
+
+    var token = uri.queryParameters['token'];
+    if ((token == null || token.isEmpty) && uri.fragment.isNotEmpty) {
+      token = Uri.splitQueryString(uri.fragment)['token'];
+    }
+
+    if (token != null && token.isNotEmpty) {
       _done = true;
       Navigator.of(context).pop(token);
     }

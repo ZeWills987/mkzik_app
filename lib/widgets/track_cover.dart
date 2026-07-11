@@ -34,6 +34,10 @@ class TrackCover extends StatelessWidget {
                 width: size,
                 height: size,
                 fit: BoxFit.cover,
+                // Décode l'image à la taille affichée (× devicePixelRatio) au
+                // lieu de la pleine résolution : mémoire et jank de décodage
+                // divisés d'un facteur ~10-50 sur les vignettes de listes.
+                memCacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
                 placeholder: (context, u) => _gradient(),
                 errorWidget: (context, u, error) => _gradient(),
               )

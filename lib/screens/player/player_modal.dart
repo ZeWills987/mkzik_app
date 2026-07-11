@@ -12,6 +12,7 @@ import '../../providers/notice_provider.dart';
 import '../../widgets/current_list_sheet.dart';
 import '../../widgets/track_cover.dart';
 import '../../widgets/track_actions.dart';
+import '../../widgets/tappable.dart';
 import '../../utils/media.dart';
 import '../profile/profile_screen.dart';
 import 'widgets/player_scene_painter.dart';
@@ -55,8 +56,10 @@ class PlayerModal extends ConsumerStatefulWidget {
 
 class _PlayerModalState extends ConsumerState<PlayerModal>
     with SingleTickerProviderStateMixin {
-  // Décalage vertical courant pendant le glissement (0 = position fermée/haute)
-  double _dragOffset = 0;
+  // Décalage vertical pendant le glissement — ValueNotifier et non setState :
+  // chaque frame de drag ne déplace que le Transform (le contenu du modal,
+  // blurs compris, est construit une seule fois et réutilisé).
+  final _dragOffset = ValueNotifier<double>(0);
   // Mode paroles : la zone centrale (pochette) laisse place aux lyrics.
   bool _showLyrics = false;
   late final AnimationController _snap;
@@ -70,35 +73,43 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
   @override
   void dispose() {
     _snap.dispose();
+    _dragOffset.dispose();
     super.dispose();
   }
 
   void _onDragUpdate(DragUpdateDetails d) {
     // On ne suit que vers le bas (offset >= 0)
-    setState(() => _dragOffset = math.max(0, _dragOffset + d.delta.dy));
+    _dragOffset.value = math.max(0, _dragOffset.value + d.delta.dy);
   }
 
   void _onDragEnd(DragEndDetails d) {
     final velocity = d.primaryVelocity ?? 0;
     final h = MediaQuery.of(context).size.height;
     // Ferme si glissé sur > 25% de l'écran OU geste rapide vers le bas
-    if (_dragOffset > h * 0.25 || velocity > 700) {
+    if (_dragOffset.value > h * 0.25 || velocity > 700) {
       Navigator.of(context).maybePop();
       return;
     }
     // Sinon : retour élastique à la position initiale
-    final anim = Tween(begin: _dragOffset, end: 0.0)
+    final anim = Tween(begin: _dragOffset.value, end: 0.0)
         .animate(CurvedAnimation(parent: _snap, curve: Curves.easeOut));
-    void listener() => setState(() => _dragOffset = anim.value);
+    void listener() => _dragOffset.value = anim.value;
     anim.addListener(listener);
     _snap.forward(from: 0).whenComplete(() => anim.removeListener(listener));
   }
 
   @override
   Widget build(BuildContext context) {
-    final player = ref.watch(playerProvider);
-    final track = player.currentTrack;
+    // ⚠️ Perf : selects ciblés uniquement — la position (qui tick 5-60 Hz) est
+    // isolée dans _WaveformAndTime, pour ne pas rebuilder le fond flouté
+    // (blur 55), le ScenePainter et le panneau verre à chaque tick.
+    final track = ref.watch(playerProvider.select((s) => s.currentTrack));
     if (track == null) return const SizedBox.shrink();
+    final isLiked = ref.watch(playerProvider.select((s) => s.isLiked));
+    final isPlaying = ref.watch(playerProvider.select((s) => s.isPlaying));
+    final isShuffle = ref.watch(playerProvider.select((s) => s.isShuffle));
+    final repeatMode = ref.watch(playerProvider.select((s) => s.repeatMode));
+    final canSkip = ref.watch(playerProvider.select((s) => s.canSkip));
 
     final notifier = ref.read(playerProvider.notifier);
     final colors = track.gradientColors;
@@ -113,8 +124,6 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
     // largeur qui pilote → rendu identique à avant.
     final availForCover = (screenH - 500).clamp(150.0, 300.0);
     final artSize = (MediaQuery.of(context).size.width * 0.58).clamp(150.0, availForCover);
-
-    final dragT = (_dragOffset / screenH).clamp(0.0, 1.0);
 
     // Bouton/mode LYRICS :
     //  • interne → flag serveur `track.hasLyrics`.
@@ -136,7 +145,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 6),
-          GestureDetector(
+          Tappable(
             onTap: track.artist.isEmpty
                 ? null
                 : () {
@@ -165,11 +174,18 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
       // Glisser vers le bas n'importe où sur le fond pour fermer
       onVerticalDragUpdate: _onDragUpdate,
       onVerticalDragEnd: _onDragEnd,
-      child: Transform.translate(
-        offset: Offset(0, _dragOffset),
-        child: Opacity(
-          opacity: (1 - dragT * 0.7).clamp(0.0, 1.0),
-          child: Scaffold(
+      // Le contenu (child) est construit UNE fois ; le drag ne fait que le
+      // translater/estomper — aucun rebuild des blurs pendant le geste.
+      child: ValueListenableBuilder<double>(
+        valueListenable: _dragOffset,
+        builder: (context, off, child) {
+          final t = (off / screenH).clamp(0.0, 1.0);
+          return Transform.translate(
+            offset: Offset(0, off),
+            child: Opacity(opacity: (1 - t * 0.7).clamp(0.0, 1.0), child: child),
+          );
+        },
+        child: Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
@@ -323,7 +339,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                         children: [
                           // Barre d'actions : LIKE / LYRICS / SHARE / MORE
                           PlayerActionsRow(
-                            isLiked: player.isLiked,
+                            isLiked: isLiked,
                             likes: track.likesLabel,
                             accent: accent,
                             hasLyrics: canTryLyrics,
@@ -338,64 +354,44 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                             onMore: () => showTrackActionsSheet(context, ref, track),
                           ),
                           const SizedBox(height: 18),
-                          // Waveform + temps
-                          PlayerWaveform(
-                            progress: player.progress,
-                            duration: player.duration,
-                            accent: accentLight,
-                            seed: track.id.hashCode,
-                            onSeek: notifier.seekTo,
-                          ),
-                          const SizedBox(height: 6),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(player.positionFormatted,
-                                  style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                              Text(
-                                player.duration == Duration.zero
-                                    ? track.durationFormatted
-                                    : player.durationFormatted,
-                                style: const TextStyle(color: Colors.white70, fontSize: 11),
-                              ),
-                            ],
-                          ),
+                          // Waveform + temps — isolés : seuls eux écoutent la position
+                          _WaveformAndTime(track: track, accentLight: accentLight),
                           const SizedBox(height: 14),
                           // Shuffle · prev · play · next · repeat
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              GestureDetector(
+                              Tappable(
                                 onTap: notifier.toggleShuffle,
                                 child: Icon(
                                   Icons.shuffle,
                                   size: 22,
-                                  color: player.isShuffle ? accentLight : Colors.white54,
+                                  color: isShuffle ? accentLight : Colors.white54,
                                 ),
                               ),
                               const SizedBox(width: 22),
                               PlayerControlButton(
                                 icon: Icons.skip_previous,
-                                enabled: player.canSkip,
+                                enabled: canSkip,
                                 onTap: notifier.previous,
                               ),
                               const SizedBox(width: 20),
                               PlayerPlayButton(
-                                isPlaying: player.isPlaying,
+                                isPlaying: isPlaying,
                                 colors: [accentLight, accent],
                                 onTap: notifier.togglePlayPause,
                               ),
                               const SizedBox(width: 20),
                               PlayerControlButton(
                                 icon: Icons.skip_next,
-                                enabled: player.canSkip,
+                                enabled: canSkip,
                                 onTap: notifier.next,
                               ),
                               const SizedBox(width: 22),
-                              GestureDetector(
+                              Tappable(
                                 onTap: notifier.cycleRepeat,
                                 child: Icon(
-                                  player.repeatMode == RepeatMode.one
+                                  repeatMode == RepeatMode.one
                                       ? Icons.repeat_one
                                       : Icons.repeat,
                                   size: 22,
@@ -418,11 +414,59 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
           ),
         ],
       ),
-          ),
         ),
       ),
         ),
       ),
+    );
+  }
+}
+
+// ── Waveform + labels de temps (seuls dépendants de la position) ─────────────
+
+/// Isolé du reste du modal : seul ce widget rebuild au tick de position
+/// (5-60 Hz) — le fond flouté et le panneau verre n'écoutent que le track.
+class _WaveformAndTime extends ConsumerWidget {
+  final Track track;
+  final Color accentLight;
+  const _WaveformAndTime({required this.track, required this.accentLight});
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes;
+    final s = d.inSeconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final position = ref.watch(playerProvider.select((s) => s.position));
+    final duration = ref.watch(playerProvider.select((s) => s.duration));
+    final notifier = ref.read(playerProvider.notifier);
+    final progress = duration.inMilliseconds == 0
+        ? 0.0
+        : (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
+
+    return Column(
+      children: [
+        PlayerWaveform(
+          progress: progress,
+          duration: duration,
+          accent: accentLight,
+          seed: track.id.hashCode,
+          onSeek: notifier.seekTo,
+        ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(_fmt(position), style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            Text(
+              duration == Duration.zero ? track.durationFormatted : _fmt(duration),
+              style: const TextStyle(color: Colors.white70, fontSize: 11),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -450,19 +494,24 @@ class _CurrentLyricsLine extends ConsumerWidget {
     }
     if (lyrics == null || !lyrics.hasSyncedLines) return const SizedBox.shrink();
 
-    final posMs = ref.watch(playerProvider.select((s) => s.position)).inMilliseconds;
-
-    int active = -1;
-    for (var i = 0; i < lyrics.lines.length; i++) {
-      if (lyrics.lines[i].timeMs <= posMs + _leadMs) {
-        active = i;
-      } else {
-        break;
+    // Select sur l'INDEX de ligne actif (pas la position brute) : ne notifie
+    // que quand la ligne change (quelques fois/minute), pas à chaque tick.
+    final lines = lyrics.lines;
+    final active = ref.watch(playerProvider.select((s) {
+      final posMs = s.position.inMilliseconds;
+      var a = -1;
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].timeMs <= posMs + _leadMs) {
+          a = i;
+        } else {
+          break;
+        }
       }
-    }
+      return a;
+    }));
 
     if (active < 0) return const SizedBox.shrink();
-    final text = lyrics.lines[active].text.trim();
+    final text = lines[active].text.trim();
     if (text.isEmpty) return const SizedBox.shrink();
 
     return Padding(
