@@ -1,3 +1,5 @@
+import 'pex.dart';
+
 /// Modèle de domaine d'une track — **données pures**, sans dépendance Flutter.
 /// Tout l'habillage visuel (couleurs, décor) vit dans `track_visuals.dart`.
 class Track {
@@ -18,6 +20,11 @@ class Track {
   final bool hasLyrics; // flag léger (listes/détail) → active le bouton LYRICS
   final bool lyricsSynced; // des paroles synchronisées (karaoké) sont dispo
   final bool inMkzik; // track externe déjà présente dans la BD Mkzik (Symfony)
+  // ── Mini-Pex : classification audio (remix / slowed / mashup…) ──
+  final String? pexFamily; // famille globale du dérivé (null = non analysé)
+  final String? pexSubtype; // sous-type précis → le badge à afficher
+  final bool? isOriginal; // true = original confirmé, false = dérivé, null = non vérifié
+  final int? duplicateOf; // id du track "master" si c'est un doublon
 
   const Track({
     required this.id,
@@ -37,7 +44,18 @@ class Track {
     this.hasLyrics = false,
     this.lyricsSynced = false,
     this.inMkzik = false,
+    this.pexFamily,
+    this.pexSubtype,
+    this.isOriginal,
+    this.duplicateOf,
   });
+
+  /// Badge Mini-Pex à afficher (remix/slowed/…), ou null.
+  /// Règle (doc §3) : un doublon n'affiche rien ; sinon le sous-type mappé.
+  PexTag? get pexTag {
+    if (duplicateOf != null) return null;
+    return pexTagFor(pexSubtype);
+  }
 
   bool get hasCover => coverUrl.isNotEmpty;
 
@@ -123,6 +141,10 @@ class Track {
       hasLyrics: j['has_lyrics'] == true,
       lyricsSynced: j['lyrics_synced'] == true,
       inMkzik: j['in_mkzik'] == true,
+      pexFamily: j['pex_family']?.toString(),
+      pexSubtype: j['pex_subtype']?.toString(),
+      isOriginal: j['is_original'] is bool ? j['is_original'] as bool : null,
+      duplicateOf: (j['duplicate_of'] as num?)?.toInt(),
     );
   }
 
@@ -154,6 +176,10 @@ class Track {
         hasLyrics: hasLyrics,
         lyricsSynced: lyricsSynced,
         inMkzik: inMkzik,
+        pexFamily: pexFamily,
+        pexSubtype: pexSubtype,
+        isOriginal: isOriginal,
+        duplicateOf: duplicateOf,
       );
 
   @override
@@ -167,11 +193,14 @@ class Track {
 enum ExtPlatform { youtubeMusic, soundcloud, other }
 
 extension TrackExtPlatform on Track {
-  /// Déduit la plateforme externe depuis `source` ('ytm'/'sc') ou `platforms`.
+  /// Déduit la plateforme d'origine depuis `source` ('ytm'/'sc') ou `platforms`.
+  /// Couvre les variantes des deux APIs : Python ('ytm', 'sc') et Symfony
+  /// (`platforms` : 'youtube', 'youtube music', 'soundcloud'…).
   ExtPlatform get extPlatform {
     final s = source.toLowerCase();
     final p = platforms.map((e) => e.toLowerCase()).join(',');
-    if (s == 'ytm' || s.contains('youtube') || p.contains('youtube')) {
+    if (s == 'ytm' || s.contains('youtube') || s == 'yt' ||
+        p.contains('youtube') || p.contains('ytm')) {
       return ExtPlatform.youtubeMusic;
     }
     if (s == 'sc' || s.contains('soundcloud') || s.contains('sound') ||
@@ -179,6 +208,25 @@ extension TrackExtPlatform on Track {
       return ExtPlatform.soundcloud;
     }
     return ExtPlatform.other;
+  }
+
+  /// Une plateforme d'origine identifiable → logo affichable, même sur une
+  /// track interne (importée depuis YouTube/SoundCloud, `platforms` non vide).
+  bool get hasPlatformTag => extPlatforms.isNotEmpty;
+
+  /// Toutes les plateformes d'origine identifiables — Symfony peut en renvoyer
+  /// plusieurs (`platforms: ["youtube", "soundcloud"]`), Python une seule.
+  List<ExtPlatform> get extPlatforms {
+    final found = <ExtPlatform>{};
+    final s = source.toLowerCase();
+    if (s == 'ytm' || s == 'yt' || s.contains('youtube')) found.add(ExtPlatform.youtubeMusic);
+    if (s == 'sc' || s.contains('soundcloud') || s.contains('sound')) found.add(ExtPlatform.soundcloud);
+    for (final raw in platforms) {
+      final p = raw.toLowerCase();
+      if (p.contains('youtube') || p.contains('ytm')) found.add(ExtPlatform.youtubeMusic);
+      if (p.contains('soundcloud') || p.contains('sound')) found.add(ExtPlatform.soundcloud);
+    }
+    return found.toList();
   }
 }
 

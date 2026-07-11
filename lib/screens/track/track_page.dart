@@ -2,13 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/track.dart';
+import '../../models/track_source.dart';
 import '../../models/track_visuals.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/import_provider.dart';
 import '../../providers/favourites_provider.dart';
 import '../../providers/notice_provider.dart';
+import '../../providers/sources_provider.dart';
 import '../../services/track_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/pex_badge.dart';
 import '../../widgets/track_cover.dart';
 import '../../widgets/notice_banner.dart';
 import '../../widgets/mini_player.dart';
@@ -148,6 +151,13 @@ class _TrackPageState extends ConsumerState<TrackPage> {
                     child: Text(track.artist,
                         style: TextStyle(color: accentLight, fontSize: 15, fontWeight: FontWeight.w600)),
                   ),
+
+                  // Badge Mini-Pex (remix / slowed / mashup…)
+                  if (track.pexTag != null) ...[
+                    const SizedBox(height: 12),
+                    PexBadge(tag: track.pexTag!),
+                  ],
+
                   const SizedBox(height: 14),
 
                   // Badges plateformes
@@ -226,12 +236,104 @@ class _TrackPageState extends ConsumerState<TrackPage> {
                         ),
                     ],
                   ),
+
+                  // Section "Sources" (lazy) : uniquement si le track est un dérivé.
+                  if (track.pexSubtype != null && track.apiId != null)
+                    _SourcesSection(trackId: track.apiId!),
+
                   const SizedBox(height: 32),
                 ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Section "Sources" d'un dérivé (originaux qui le composent) ────────────────
+class _SourcesSection extends ConsumerWidget {
+  final int trackId;
+  const _SourcesSection({required this.trackId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(trackSourcesProvider(trackId));
+    final sources = async.valueOrNull ?? const <TrackSource>[];
+    // Rien à afficher : chargement, erreur, ou original (aucune source).
+    if (sources.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 34),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    const Icon(Icons.account_tree_outlined, color: kTextSecondary, size: 18),
+                    const SizedBox(width: 8),
+                    Text('Sources (${sources.length})',
+                        style: const TextStyle(
+                            color: kTextPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              ...sources.map((s) => _SourceRow(source: s)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SourceRow extends StatelessWidget {
+  final TrackSource source;
+  const _SourceRow({required this.source});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = source.track;
+    return InkWell(
+      onTap: () => TrackPage.open(context, t),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        child: Row(
+          children: [
+            TrackCover(track: t, size: 48, radius: 8),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(t.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: kTextPrimary, fontSize: 14.5, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 3),
+                  Text(t.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: kTextSecondary, fontSize: 12.5)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            // Part de reprise + flèche
+            Text(source.coverageLabel,
+                style: TextStyle(color: kAccentLight, fontSize: 12, fontWeight: FontWeight.w700)),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right, color: kTextSecondary, size: 20),
+          ],
+        ),
       ),
     );
   }
