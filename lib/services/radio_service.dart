@@ -29,10 +29,13 @@ class RadioService {
     final q = '${seed.title} ${seed.artist}'.trim();
     if (q.isEmpty) return const [];
     final seeds = await _searchSeedUrls(q);
-    final out = <Track>[];
-    if (seeds.yt != null) out.addAll(await SuggestionService.youtubeRelated(seeds.yt!));
-    if (seeds.sc != null) out.addAll(await SuggestionService.soundcloudRelated(seeds.sc!));
-    return out;
+    // Les deux `related` sont indépendants (timeout 20 s chacun) → en parallèle,
+    // sinon le pire cas additionne les latences.
+    final results = await Future.wait([
+      if (seeds.yt != null) SuggestionService.youtubeRelated(seeds.yt!),
+      if (seeds.sc != null) SuggestionService.soundcloudRelated(seeds.sc!),
+    ]);
+    return [for (final r in results) ...r];
   }
 
   /// Cherche (recherche externe SSE) une 1ʳᵉ url YouTube et une 1ʳᵉ url SoundCloud

@@ -15,9 +15,13 @@ class ProfileService {
     return data is Map<String, dynamic> ? Profile.fromJson(data) : null;
   }
 
-  /// `GET api/tracks/{username}` → Ziks de l'utilisateur.
-  static Future<List<Track>> getUserTracks(String username) async {
-    final res = await ApiClient.getUri(_api('api/tracks/${Uri.encodeComponent(username)}'));
+  /// `GET api/tracks/{username}?limit=&offset=` → Ziks de l'utilisateur.
+  /// Sans limit (ou 0) le backend renvoie tout (rétrocompatible).
+  static Future<List<Track>> getUserTracks(String username, {int limit = 0, int offset = 0}) async {
+    final res = await ApiClient.getUri(_api(
+      'api/tracks/${Uri.encodeComponent(username)}',
+      limit > 0 ? {'limit': '$limit', 'offset': '$offset'} : null,
+    ));
     final data = res.orElse(null);
     final list = data is List ? data : (data is Map ? (data['tracks'] as List? ?? const []) : const []);
     return list.whereType<Map<String, dynamic>>().map(Track.fromJson).toList();

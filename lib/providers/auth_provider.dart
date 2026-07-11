@@ -61,6 +61,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = state.copyWith(status: AuthStatus.unauthenticated);
       return;
     }
+    // Token expiré (claim exp) → écran de connexion direct, au lieu d'une
+    // session "fantôme" qui saute au premier 401.
+    final exp = (decodeJwt(token)?['exp'] as num?)?.toInt();
+    if (exp != null && DateTime.now().millisecondsSinceEpoch ~/ 1000 >= exp) {
+      await TokenStorage.clear();
+      state = state.copyWith(status: AuthStatus.unauthenticated);
+      return;
+    }
     _applyToken(token);
   }
 

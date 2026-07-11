@@ -3,12 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/playlist.dart';
 import '../../models/track.dart';
 import '../../providers/favourites_provider.dart';
+import '../../providers/paginated_tracks_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/notice_provider.dart';
 import '../../services/playlist_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/track_actions.dart';
+import '../../widgets/mini_player.dart' show miniPlayerListPadding;
 import 'playlist_detail_screen.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
@@ -23,7 +25,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final favAsync = ref.watch(favouritesProvider);
+    final fav = ref.watch(favouritesProvider); // paginé (PagedTracksState)
     final plAsync = ref.watch(playlistsProvider);
 
     return Scaffold(
@@ -33,37 +35,59 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           color: kAccent,
           backgroundColor: kSurface,
           onRefresh: () async {
-            ref.invalidate(favouritesProvider);
             ref.invalidate(playlistsProvider);
             await Future.wait([
-              ref.read(favouritesProvider.future),
+              ref.read(favouritesProvider.notifier).refresh(),
               ref.read(playlistsProvider.future),
             ]);
           },
-          child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverToBoxAdapter(child: _Header(onCreate: () => _createPlaylist(context, ref))),
-              SliverToBoxAdapter(
-                child: _Tabs(current: _tab, onTap: (i) => setState(() => _tab = i)),
-              ),
-              ..._contentSlivers(favAsync, plAsync),
-              const SliverToBoxAdapter(child: SizedBox(height: 24)),
-            ],
+          // Approche du bas de liste → page suivante des favoris
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (n.metrics.pixels >= n.metrics.maxScrollExtent - 400) {
+                ref.read(favouritesProvider.notifier).loadMore();
+              }
+              return false;
+            },
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(child: _Header(onCreate: () => _createPlaylist(context, ref))),
+                SliverToBoxAdapter(
+                  child: _Tabs(current: _tab, onTap: (i) => setState(() => _tab = i)),
+                ),
+                ..._contentSlivers(fav, plAsync),
+                // Loader de pagination en pied de liste
+                if (fav.loadingMore && _tab != 2)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Center(
+                        child: SizedBox(
+                          width: 22, height: 22,
+                          child: CircularProgressIndicator(color: kAccent, strokeWidth: 2.2),
+                        ),
+                      ),
+                    ),
+                  ),
+                // Espace de fin : + hauteur du player flottant s'il est affiché
+                SliverToBoxAdapter(child: SizedBox(height: 24 + miniPlayerListPadding(ref))),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  List<Widget> _contentSlivers(AsyncValue<List<Track>> favAsync, AsyncValue<List<Playlist>> plAsync) {
+  List<Widget> _contentSlivers(PagedTracksState fav, AsyncValue<List<Playlist>> plAsync) {
     switch (_tab) {
       case 1:
-        return [_favouritesSliver(context, ref, favAsync)];
+        return [_favouritesSliver(context, ref, fav)];
       case 2:
         return [_playlistsSliver(context, ref, plAsync)];
       default:
-        return [_allSliver(context, ref, favAsync, plAsync)];
+        return [_allSliver(context, ref, fav, plAsync)];
     }
   }
 }
@@ -73,13 +97,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 Widget _allSliver(
   BuildContext context,
   WidgetRef ref,
-  AsyncValue<List<Track>> favAsync,
+  PagedTracksState fav,
   AsyncValue<List<Playlist>> plAsync,
 ) {
-  if (favAsync.isLoading || plAsync.isLoading) {
+  if (fav.initialLoading || plAsync.isLoading) {
     return const SliverToBoxAdapter(child: _InlineLoader());
   }
-  final tracks = favAsync.valueOrNull ?? const <Track>[];
+  final tracks = fav.tracks;
   final playlists = plAsync.valueOrNull ?? const <Playlist>[];
   if (tracks.isEmpty && playlists.isEmpty) {
     return const SliverToBoxAdapter(
@@ -158,30 +182,29 @@ Widget _playlistsSliver(BuildContext context, WidgetRef ref, AsyncValue<List<Pla
   );
 }
 
-Widget _favouritesSliver(BuildContext context, WidgetRef ref, AsyncValue<List<Track>> async) {
-  return async.when(
-    loading: () => const SliverToBoxAdapter(child: _InlineLoader()),
-    error: (_, _) => const SliverToBoxAdapter(child: _InlineMessage('Favoris indisponibles.')),
-    data: (tracks) {
-      if (tracks.isEmpty) {
-        return const SliverToBoxAdapter(
-          child: _InlineMessage('Aucun favori — like des Ziks pour les retrouver ici.'),
-        );
-      }
-      return SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (context, i) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TrackResultRow(
-              track: tracks[i],
-              onTap: () => ref.read(playerProvider.notifier).playTrack(tracks[i], queue: tracks),
-              onMenu: () => showTrackActionsSheet(context, ref, tracks[i]),
-            ),
-          ),
-          childCount: tracks.length,
+Widget _favouritesSliver(BuildContext context, WidgetRef ref, PagedTracksState fav) {
+  if (fav.initialLoading) return const SliverToBoxAdapter(child: _InlineLoader());
+  if (fav.error != null) {
+    return const SliverToBoxAdapter(child: _InlineMessage('Favoris indisponibles.'));
+  }
+  final tracks = fav.tracks;
+  if (tracks.isEmpty) {
+    return const SliverToBoxAdapter(
+      child: _InlineMessage('Aucun favori — like des Ziks pour les retrouver ici.'),
+    );
+  }
+  return SliverList(
+    delegate: SliverChildBuilderDelegate(
+      (context, i) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: TrackResultRow(
+          track: tracks[i],
+          onTap: () => ref.read(playerProvider.notifier).playTrack(tracks[i], queue: tracks),
+          onMenu: () => showTrackActionsSheet(context, ref, tracks[i]),
         ),
-      );
-    },
+      ),
+      childCount: tracks.length,
+    ),
   );
 }
 

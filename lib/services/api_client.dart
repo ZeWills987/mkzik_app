@@ -34,6 +34,11 @@ class Err<T> extends ApiResult<T> {
 class ApiClient {
   static const _timeout = Duration(seconds: 12);
 
+  /// Client persistant : réutilise les connexions TCP+TLS (keep-alive) au lieu
+  /// d'en rouvrir une par requête (~100-300 ms de handshake économisés à chaque
+  /// appel, surtout sensible sur réseau mobile).
+  static final http.Client _client = http.Client();
+
   /// Déclenché quand une requête **authentifiée** se voit refuser par un 401
   /// (token expiré/invalide) → la couche auth s'y abonne pour déconnecter
   /// l'utilisateur au lieu de le laisser coincé. Branché par `AuthNotifier`.
@@ -72,11 +77,11 @@ class ApiClient {
       final t = timeout ?? _timeout;
 
       final http.Response res = await switch (method) {
-        'GET' => http.get(uri, headers: headers),
-        'POST' => http.post(uri, headers: headers, body: encoded),
-        'PUT' => http.put(uri, headers: headers, body: encoded),
-        'PATCH' => http.patch(uri, headers: headers, body: encoded),
-        'DELETE' => http.delete(uri, headers: headers, body: encoded),
+        'GET' => _client.get(uri, headers: headers),
+        'POST' => _client.post(uri, headers: headers, body: encoded),
+        'PUT' => _client.put(uri, headers: headers, body: encoded),
+        'PATCH' => _client.patch(uri, headers: headers, body: encoded),
+        'DELETE' => _client.delete(uri, headers: headers, body: encoded),
         _ => throw ArgumentError('Méthode non supportée: $method'),
       }
           .timeout(t);

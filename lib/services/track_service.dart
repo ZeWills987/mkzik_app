@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/track.dart';
+import '../models/track_source.dart';
 import '../models/search_user.dart';
 import 'api_client.dart';
 import '../utils/logger.dart';
@@ -44,14 +45,22 @@ class TrackService {
     final request = http.Request('GET', uri)..headers['Accept'] = 'text/event-stream';
     final client = http.Client();
     try {
-      final response = await client.send(request);
+      // Timeout de connexion : sans ça, un serveur Python injoignable laisse
+      // le spinner de recherche externe tourner indéfiniment.
+      final response = await client.send(request).timeout(const Duration(seconds: 12));
       mkLog('Mkzik 🔎 SSE status ${response.statusCode}');
       if (response.statusCode != 200) {
         yield ExternalSearchEvent(error: 'HTTP ${response.statusCode}', done: true);
         return;
       }
       var event = 'message';
-      await for (final line in response.stream.transform(utf8.decoder).transform(const LineSplitter())) {
+      // Timeout d'inactivité : si le flux reste muet 30 s (yt-dlp bloqué),
+      // on ferme proprement au lieu d'attendre un event `done` qui ne vient pas.
+      final lines = response.stream
+          .timeout(const Duration(seconds: 30), onTimeout: (sink) => sink.close())
+          .transform(utf8.decoder)
+          .transform(const LineSplitter());
+      await for (final line in lines) {
         if (line.startsWith('event:')) {
           event = line.substring(6).trim();
         } else if (line.startsWith('data:')) {
@@ -121,9 +130,13 @@ class TrackService {
     };
   }
 
-  /// `GET api/{username}/favourites` → Ziks likés par l'utilisateur.
-  static Future<List<Track>> getFavourites(String username) async {
-    final res = await ApiClient.getUri(_api('api/${Uri.encodeComponent(username)}/favourites'));
+  /// `GET api/{username}/favourites?limit=&offset=` → Ziks likés par l'utilisateur.
+  /// Sans limit (ou 0) le backend renvoie tout (rétrocompatible).
+  static Future<List<Track>> getFavourites(String username, {int limit = 0, int offset = 0}) async {
+    final res = await ApiClient.getUri(_api(
+      'api/${Uri.encodeComponent(username)}/favourites',
+      limit > 0 ? {'limit': '$limit', 'offset': '$offset'} : null,
+    ));
     return _tracksFrom(res.orElse(null));
   }
 
@@ -153,12 +166,41 @@ class TrackService {
     );
   }
 
+  /// `GET api/tracks/{id}/sources` → sources (originaux) d'un dérivé.
+  /// Liste vide = c'est un original (pas de section "Sources" à afficher).
+  static Future<List<TrackSource>> getSources(int trackId) async {
+    final res = await ApiClient.getUri(_api('api/tracks/$trackId/sources'));
+    final data = res.orElse(null);
+    if (data is! Map) return const [];
+    final list = data['sources'];
+    if (list is! List) return const [];
+    return list.whereType<Map<String, dynamic>>().map(TrackSource.fromJson).toList();
+  }
+
   /// `GET api/tracks/{id}/audio` → { audio_url, expires_at }.
   static Future<String?> getSignedAudioUrl(int trackId) async {
     final res = await ApiClient.getUri(_api('api/tracks/$trackId/audio'));
     final data = res.orElse(null);
     if (data is! Map) return null;
     return (data['audio_url'] ?? data['audioUrl'] ?? data['url'])?.toString();
+  }
+
+  /// `POST api/tracks/sign-batch` body {ids} → `{ "<id>": {audio_url, expires_at} }`.
+  /// Signe plusieurs titres en UNE requête (remplace la rafale de GET .../audio
+  /// au chargement d'une file). Renvoie une map id → URL signée (ids absents
+  /// de la réponse = non signables).
+  static Future<Map<int, String>> getSignedAudioUrlsBatch(List<int> ids) async {
+    if (ids.isEmpty) return const {};
+    final res = await ApiClient.postUri(_api('api/tracks/sign-batch'), body: {'ids': ids});
+    final data = res.orElse(null);
+    if (data is! Map) return const {};
+    final out = <int, String>{};
+    data.forEach((key, value) {
+      final id = int.tryParse('$key');
+      final url = value is Map ? (value['audio_url'] ?? value['audioUrl'])?.toString() : null;
+      if (id != null && url != null && url.isNotEmpty) out[id] = url;
+    });
+    return out;
   }
 
   /// `POST api/external-track/download` body {track_url} → import d'un externe.

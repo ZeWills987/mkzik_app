@@ -14,6 +14,7 @@ import '../services/stream_service.dart';
 import '../utils/media.dart';
 import 'import_provider.dart';
 import 'favourites_provider.dart';
+import 'notice_provider.dart';
 import '../utils/logger.dart';
 
 // Mode de répétition. `off` est conservé pour compat mais n'est plus utilisé :
@@ -126,21 +127,37 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       state = state.copyWith(position: pos);
       final ms = pos.inMilliseconds;
       if (_playTrack != null && ms > _playMaxMs) _playMaxMs = ms;
-    });
+    }, onError: (Object e) => mkLog('Mkzik ▶ positionStream erreur : $e'));
 
     // Écoute de la durée quand un titre est chargé
     _audio.durationStream.listen((dur) {
       if (dur != null) state = state.copyWith(duration: dur);
-    });
+    }, onError: (Object e) => mkLog('Mkzik ▶ durationStream erreur : $e'));
 
     // Changement d'index (auto-avance, prev/next notif, fin de titre) → resync
     // de l'état Dart sur le titre réellement joué par le moteur natif.
-    _audio.currentIndexStream.listen(_onCurrentIndexChanged);
+    _audio.currentIndexStream.listen(_onCurrentIndexChanged,
+        onError: (Object e) => mkLog('Mkzik ▶ indexStream erreur : $e'));
 
     // Sync isPlaying avec l'état réel du player
     _audio.playerStateStream.listen((ps) {
       state = state.copyWith(isPlaying: ps.playing);
       _smtc?.setPlaybackStatus(ps.playing ? PlaybackStatus.playing : PlaybackStatus.paused);
+    }, onError: (Object e) => mkLog('Mkzik ▶ playerStateStream erreur : $e'));
+
+    // Erreurs de flux EN COURS de lecture (URL signée expirée, stream yt-dlp qui
+    // meurt…) : sans ce handler la lecture s'arrête en silence. On informe
+    // l'utilisateur et on tente d'enchaîner sur le titre suivant.
+    _audio.playbackEventStream.listen((_) {}, onError: (Object e) {
+      mkLog('Mkzik ▶ erreur de flux en lecture : $e');
+      final t = state.currentTrack;
+      if (t != null && _playerTracks.length > 1) {
+        _ref.read(noticeProvider.notifier).show('« ${t.title} » indisponible — titre suivant');
+        unawaited(next());
+      } else {
+        _ref.read(noticeProvider.notifier).show('Lecture interrompue, réessaie');
+        state = state.copyWith(isPlaying: false);
+      }
     });
 
     // Boucle de file par défaut → prev/next cycliques et stables dans la notif.
@@ -188,6 +205,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   // le player. Windows uniquement — jamais appelé sur mobile.
   void _initSmtc() {
     _smtc = SMTCWindows(
+      // Désactivé tant que rien ne joue : sinon Windows affiche une session
+      // média « Mkzik » vide dès l'ouverture de l'app (avant tout play).
+      enabled: false,
       config: const SMTCConfig(
         playEnabled: true,
         pauseEnabled: true,
@@ -213,10 +233,17 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     });
   }
 
+  bool _smtcEnabled = false;
+
   // Met à jour les métadonnées affichées par Windows (titre, artiste, pochette).
+  // Active la session SMTC au premier titre joué (créée désactivée au boot).
   void _updateSmtcMetadata(Track t) {
     final smtc = _smtc;
     if (smtc == null) return;
+    if (!_smtcEnabled) {
+      _smtcEnabled = true;
+      smtc.enableSmtc();
+    }
     final cover = mediaUrl(t.coverUrl);
     smtc.updateMetadata(MusicMetadata(
       title: t.title,
@@ -266,7 +293,15 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _playMaxMs = 0;
     _playId = null;
     if (t.apiId == null) return;
-    _playId = await TrackService.startPlay(t.apiId!);
+    final id = await TrackService.startPlay(t.apiId!);
+    if (_playTrack?.id == t.id) {
+      _playId = id;
+    } else if (id != null) {
+      // Le titre a changé pendant l'await (skip rapide) : cette écoute ne sera
+      // jamais clôturée par _finishPlay → on la clôt tout de suite à 0s pour ne
+      // pas laisser d'écoute orpheline côté backend.
+      unawaited(TrackService.completePlay(id, listenedSeconds: 0, completed: false));
+    }
   }
 
   // Clôt l'écoute en cours : envoie les secondes écoutées + si terminée (~90%).
@@ -334,29 +369,40 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // Démarrage IMMÉDIAT avec une playlist d'un seul titre (le titre cliqué) →
     // pas d'attente de la signature du reste de la file. Le reste est hydraté
     // en arrière-plan (cf. _hydrateQueue) sans couper la lecture.
-    try {
-      _playerTracks = [current];
-      _playlist = ConcatenatingAudioSource(children: [_audioSourceFor(current)]);
-      await _audio.setAudioSource(_playlist!, initialIndex: 0, initialPosition: Duration.zero);
-      if (token != _playToken) {
+    // 2 tentatives : les flux externes (yt-dlp) échouent parfois de façon
+    // transitoire — un retry immédiat suffit souvent.
+    var started = false;
+    for (var attempt = 1; attempt <= 2 && !started; attempt++) {
+      try {
+        _playerTracks = [current];
+        _playlist = ConcatenatingAudioSource(children: [_audioSourceFor(current)]);
+        await _audio.setAudioSource(_playlist!, initialIndex: 0, initialPosition: Duration.zero);
+        if (token != _playToken) {
+          if (streamJobId != null) importNotifier.dismiss(streamJobId);
+          return;
+        }
+        await _audio.setLoopMode(_loopFor(state.repeatMode));
+        await _audio.setShuffleModeEnabled(state.isShuffle);
+        await _audio.play();
+        started = true;
+        // Flux prêt → on retire le spinner.
         if (streamJobId != null) importNotifier.dismiss(streamJobId);
-        return;
+        // Démarre le tracking d'écoute du titre courant (l'event d'index initial
+        // est "same track" → on le démarre explicitement ici).
+        unawaited(_beginPlay(current));
+        // Pré-chauffe les prochains flux externes pendant que l'audio charge.
+        unawaited(_warmupNext());
+      } catch (e) {
+        mkLog('Mkzik ▶ erreur lecture "${track.title}" (tentative $attempt/2) : $e');
+        if (token != _playToken) return;
+        if (attempt == 2) {
+          if (streamJobId != null) {
+            importNotifier.streamError(streamJobId, 'Titre indisponible, réessaie plus tard');
+          }
+          state = state.copyWith(isPlaying: false);
+          return;
+        }
       }
-      await _audio.setLoopMode(_loopFor(state.repeatMode));
-      await _audio.setShuffleModeEnabled(state.isShuffle);
-      await _audio.play();
-      // Flux prêt → on retire le spinner.
-      if (streamJobId != null) importNotifier.dismiss(streamJobId);
-      // Démarre le tracking d'écoute du titre courant (l'event d'index initial
-      // est "same track" → on le démarre explicitement ici).
-      unawaited(_beginPlay(current));
-      // Pré-chauffe les prochains flux externes pendant que l'audio charge.
-      unawaited(_warmupNext());
-    } catch (e) {
-      mkLog('Mkzik ▶ erreur lecture "${track.title}" : $e');
-      if (streamJobId != null) importNotifier.streamError(streamJobId, 'Flux indisponible, réessaie');
-      if (token == _playToken) state = state.copyWith(isPlaying: false);
-      return;
     }
 
     // Hydrate le reste de la file en arrière-plan (signe + insère autour du
@@ -366,13 +412,32 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   /// Résout (signe) les autres titres de la file et les insère autour du titre
   /// courant dans la playlist native, sans interrompre la lecture en cours.
+  /// Les internes sont signés en UNE requête batch (`POST api/tracks/sign-batch`)
+  /// au lieu d'un GET .../audio par titre (rafale de N requêtes sur une playlist).
   Future<void> _hydrateQueue(List<Track> q, int selIdx, Track current, int token) async {
     if (q.length < 2) return;
-    final resolved = await Future.wait([
+
+    // Ids des titres internes qui ont besoin d'une URL signée
+    final toSign = <int>[
       for (var i = 0; i < q.length; i++)
-        i == selIdx ? Future.value(current) : _resolveForQueue(q[i]),
-    ]);
+        if (i != selIdx && !q[i].hasPlayableUrl && !q[i].needsStream && q[i].apiId != null)
+          q[i].apiId!,
+    ];
+    final signed = await TrackService.getSignedAudioUrlsBatch(toSign);
     if (token != _playToken || _playlist == null) return;
+
+    Track? resolve(Track t) {
+      if (t.hasPlayableUrl) return t;
+      if (t.needsStream) {
+        return t.pageUrl.isNotEmpty ? t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl)) : null;
+      }
+      final url = t.apiId != null ? signed[t.apiId!] : null;
+      return url != null ? t.copyWith(audioUrl: url) : null;
+    }
+
+    final resolved = [
+      for (var i = 0; i < q.length; i++) i == selIdx ? current : resolve(q[i]),
+    ];
 
     // Sépare les titres jouables avant / après le titre courant
     final before = <Track>[];
@@ -415,19 +480,28 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
+  Timer? _warmupTimer;
+  final _warmedUrls = <String>{}; // pageUrls déjà préparées (anti re-prepare)
+
   /// Pré-chauffe les 2 prochaines tracks externes de la file via `/stream/prepare`.
   /// Python lance yt-dlp en avance de phase → cache hit (~0 ms) au démarrage réel.
-  /// Fire-and-forget : ne bloque jamais la lecture en cours.
+  /// Débouncé (2 s) et dédupliqué : zapper rapidement dans la file ne déclenche
+  /// plus une rafale de /stream/prepare, et une URL déjà préparée ne l'est pas deux fois.
   Future<void> _warmupNext() async {
-    final q = state.queue;
-    final idx = state.currentIndex;
-    final urls = q
-        .skip(idx + 1)
-        .take(2)
-        .where((t) => t.needsStream && t.pageUrl.isNotEmpty)
-        .map((t) => t.pageUrl)
-        .toList();
-    await StreamService.prepare(urls);
+    _warmupTimer?.cancel();
+    _warmupTimer = Timer(const Duration(seconds: 2), () {
+      final q = state.queue;
+      final idx = state.currentIndex;
+      final urls = q
+          .skip(idx + 1)
+          .take(2)
+          .where((t) => t.needsStream && t.pageUrl.isNotEmpty)
+          .map((t) => t.pageUrl)
+          .where(_warmedUrls.add) // add() = false si déjà présent → filtré
+          .toList();
+      if (_warmedUrls.length > 50) _warmedUrls.clear(); // borne mémoire simple
+      if (urls.isNotEmpty) unawaited(StreamService.prepare(urls));
+    });
   }
 
   /// Rend un track réellement jouable :
@@ -520,10 +594,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   Future<bool> startRadio() async {
     final seed = state.currentTrack;
     if (seed == null || _playlist == null) return false;
-    final pIdx = _playerTracks.indexWhere((t) => t.id == seed.id);
-    if (pIdx < 0) return false;
+    if (_playerTracks.indexWhere((t) => t.id == seed.id) < 0) return false;
+    // Les suggestions peuvent prendre ~15 s : si l'utilisateur lance un autre
+    // titre pendant ce temps (_playToken changé), on abandonne — sinon on
+    // opérerait la playlist native avec des index périmés.
+    final token = _playToken;
     try {
       final suggestions = await RadioService.suggestionsFor(seed);
+      if (token != _playToken || _playlist == null) return false;
       final seen = {RadioService.dedupKey(seed)};
       final fresh = <Track>[for (final t in suggestions) if (seen.add(RadioService.dedupKey(t))) t];
       if (fresh.isEmpty) return false;
@@ -532,11 +610,17 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       final sources = <AudioSource>[];
       for (final t in fresh.take(20)) {
         final r = await _resolveForQueue(t);
+        if (token != _playToken) return false;
         if (r == null || r.audioUrl.isEmpty) continue;
         resolved.add(r);
         sources.add(_audioSourceFor(r));
       }
-      if (resolved.isEmpty || _playlist == null) return false;
+      if (resolved.isEmpty || token != _playToken || _playlist == null) return false;
+
+      // L'index du seed est recalculé APRÈS les awaits (l'hydratation en
+      // arrière-plan a pu décaler la playlist native entre-temps).
+      final pIdx = _playerTracks.indexWhere((t) => t.id == seed.id);
+      if (pIdx < 0) return false;
 
       // Reconstruction : [seed, R1, R2, …] — on retire tout ce qui précède le
       // courant pour que LoopMode.all ne reboucle jamais sur l'ancienne playlist.
@@ -601,7 +685,15 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> seekTo(Duration position) async {
-    await _audio.seek(position);
+    // Pas de seek tant que la source n'est pas prête (résolution yt-dlp en
+    // cours) : just_audio peut lever ou seek sur la mauvaise source.
+    final ps = _audio.processingState;
+    if (ps == ProcessingState.idle || ps == ProcessingState.loading) return;
+    try {
+      await _audio.seek(position);
+    } catch (e) {
+      mkLog('Mkzik ▶ seek impossible : $e');
+    }
   }
 
   /// Like optimiste + appel API (cf. React useLikeTrack → toggleLikeTrack(id)).
@@ -624,11 +716,16 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// [playNext] = true → insère juste après le titre courant ("Jouer ensuite"),
   /// sinon ajoute en fin de file ("Ajouter à la liste courante").
   Future<void> addToList(Track track, {bool playNext = false}) async {
-    // Signe l'URL si nécessaire (sans importer — comme addToList côté React)
+    // Rend le titre jouable sans importer :
+    // • interne → URL signée Symfony ;
+    // • externe non importé → flux temps réel Python (sinon il serait ajouté à
+    //   la file UI mais PAS à la playlist native → sauté à l'auto-avance).
     var t = track;
     if (!t.hasPlayableUrl && !t.needsImport && t.apiId != null) {
       final signed = await TrackService.getSignedAudioUrl(t.apiId!);
       if (signed != null && signed.isNotEmpty) t = t.copyWith(audioUrl: signed);
+    } else if (t.needsStream && t.pageUrl.isNotEmpty && !t.hasPlayableUrl) {
+      t = t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
     }
 
     final list = [...state.queue];
@@ -643,8 +740,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (insertAt <= idx) idx += 1;
     state = state.copyWith(queue: list, currentIndex: idx);
 
-    // Reflète l'ajout dans la playlist native si le titre est jouable sans import
-    if (_playlist != null && t.audioUrl.isNotEmpty && !t.needsImport) {
+    // Reflète l'ajout dans la playlist native dès que le titre est jouable
+    // (URL signée OU flux temps réel — les externes stream comptent aussi)
+    if (_playlist != null && t.audioUrl.isNotEmpty) {
       final playerInsert = playNext
           ? ((_audio.currentIndex ?? 0) + 1).clamp(0, _playerTracks.length)
           : _playerTracks.length;
