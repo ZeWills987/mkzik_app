@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../models/track.dart';
 import '../../../models/search_user.dart';
+import '../../../providers/search_filter_provider.dart';
 import '../../../services/profile_service.dart';
 import '../../../theme/app_theme.dart';
 import '../../../utils/media.dart';
 import '../../../widgets/track_actions.dart';
+import '../../../widgets/tappable.dart';
 import '../../profile/profile_screen.dart';
 
 /// Chip de tri (PERTINENCE / DATE / ÉCOUTES).
@@ -17,7 +20,7 @@ class SortChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Padding(
@@ -34,35 +37,52 @@ class SortChip extends StatelessWidget {
   }
 }
 
-/// Chip de filtre plateforme externe (logo + libellé) — onglet Externe.
-class PlatformChip extends StatelessWidget {
-  final String label;
-  final ExtPlatform? platform; // null = "TOUT" (pas de logo)
+/// Pastille pleine (fond + bordure) pour un filtre plateforme actif/inactif.
+/// Contrairement aux chips de tri (texte seul), celles-ci sont multi-select :
+/// leur état "actif" doit rester lisible même sans les comparer entre elles.
+class PlatformFilterChip extends StatelessWidget {
+  final SearchPlatform platform;
   final bool active;
   final VoidCallback onTap;
 
-  const PlatformChip({super.key, required this.label, this.platform, required this.active, required this.onTap});
+  const PlatformFilterChip({super.key, required this.platform, required this.active, required this.onTap});
+
+  String get _label => switch (platform) {
+        SearchPlatform.mkzik => 'MKZIK',
+        SearchPlatform.youtube => 'YT MUSIC',
+        SearchPlatform.soundcloud => 'SOUNDCLOUD',
+      };
+
+  Widget _logo(double size) => switch (platform) {
+        SearchPlatform.mkzik => Icon(Icons.graphic_eq_rounded, color: active ? kAccent : kTextSecondary, size: size),
+        SearchPlatform.youtube => PlatformLogo(platform: ExtPlatform.youtubeMusic, size: size),
+        SearchPlatform.soundcloud => PlatformLogo(platform: ExtPlatform.soundcloud, size: size),
+      };
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.only(right: 16),
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        decoration: BoxDecoration(
+          color: active ? kAccent.withValues(alpha: 0.14) : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: active ? kAccent.withValues(alpha: 0.5) : kBorderSoft),
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (platform != null) ...[
-              Opacity(opacity: active ? 1 : 0.55, child: PlatformLogo(platform: platform!, size: 15)),
-              const SizedBox(width: 5),
-            ],
-            Text(label,
+            Opacity(opacity: active ? 1 : 0.55, child: _logo(14)),
+            const SizedBox(width: 6),
+            Text(_label,
                 style: TextStyle(
-                  color: active ? kAccent : kTextSecondary,
+                  color: active ? kAccentLight : kTextSecondary,
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  letterSpacing: 0.5,
+                  letterSpacing: 0.4,
                 )),
           ],
         ),
@@ -108,7 +128,7 @@ class _ResultUserRowState extends State<ResultUserRow> {
         children: [
           // Avatar + nom cliquables → profil de l'utilisateur/artiste
           Expanded(
-            child: GestureDetector(
+            child: Tappable(
               onTap: () => ProfileScreen.open(context, u.username),
               behavior: HitTestBehavior.opaque,
               child: Row(
@@ -118,7 +138,11 @@ class _ResultUserRowState extends State<ResultUserRow> {
                     return CircleAvatar(
                     radius: 22,
                     backgroundColor: kUserBlue,
-                    backgroundImage: av.isNotEmpty ? NetworkImage(av) : null,
+                    // Cache disque + décodage à la taille affichée (44px)
+                    backgroundImage: av.isNotEmpty
+                        ? CachedNetworkImageProvider(av,
+                            maxWidth: (44 * MediaQuery.devicePixelRatioOf(context)).round())
+                        : null,
                     child: av.isEmpty
                         ? Text(u.username.isNotEmpty ? u.username[0].toUpperCase() : '?',
                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))
@@ -144,7 +168,7 @@ class _ResultUserRowState extends State<ResultUserRow> {
             ),
           ),
           const SizedBox(width: 8),
-          GestureDetector(
+          Tappable(
             onTap: _toggle,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),

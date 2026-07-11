@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../models/track.dart';
 import '../../../theme/app_theme.dart';
 import '../../../widgets/track_actions.dart';
 import '../search_controller.dart';
@@ -26,9 +27,8 @@ class _SourceBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (kind) {
-      SearchTab.zik => ('ZIK', kAccent),
+      SearchTab.tracks => ('ZIK', kAccent),
       SearchTab.user => ('USER', kUserBlue),
-      SearchTab.external => ('EXT', kBadgeGray),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -88,8 +88,9 @@ class SuggestionRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            // Externe → logo de la plateforme ; sinon badge ZIK / USER
-            if (suggestion.kind == SearchTab.external && suggestion.track != null)
+            // Plateforme identifiable (externe ou interne importée) → logo ;
+            // sinon badge ZIK / USER
+            if (suggestion.kind == SearchTab.tracks && (suggestion.track?.hasPlatformTag ?? false))
               PlatformBadge(track: suggestion.track!)
             else
               _SourceBadge(suggestion.kind),

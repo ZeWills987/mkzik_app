@@ -4,9 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/track.dart';
 import '../../models/search_user.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/search_filter_provider.dart';
 import '../../services/track_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/track_actions.dart';
+import '../../widgets/adaptive_sheet.dart';
+import '../../widgets/mini_player.dart' show miniPlayerListPadding;
+import '../../widgets/tappable.dart';
 import 'search_controller.dart';
 import 'widgets/search_input_bar.dart';
 import 'widgets/explore_view.dart';
@@ -38,9 +42,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   String? _externalError; // erreur de la recherche externe (SSE)
   List<Suggestion> _suggestions = const [];
 
-  SearchTab _tab = SearchTab.zik;
+  SearchTab _tab = SearchTab.tracks;
   SearchSort _sort = SearchSort.relevance;
-  ExtPlatform? _extPlatform; // filtre plateforme de l'onglet Externe (null = toutes)
 
   @override
   void initState() {
@@ -70,6 +73,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _debounce?.cancel();
     if (value.trim().isEmpty) {
       _extSub?.cancel();
+      // Résultats vidés → les prochaines requêtes doivent refetcher
+      _lastInternalRun = '';
+      _lastExternalRun = '';
       setState(() {
         _suggestions = const [];
         _zik = [];
@@ -78,22 +84,25 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       });
       return;
     }
-    _debounce = Timer(const Duration(milliseconds: 350), () => _runSearch(value));
+    // Pendant la frappe : recherche INTERNE seulement (rapide, alimente les
+    // suggestions). Le SSE externe (scraping yt-dlp coûteux côté serveur)
+    // n'est lancé qu'au submit — sinon chaque pause de frappe déclencherait
+    // une recherche YouTube+SoundCloud complète pour 2 lignes de suggestion.
+    _debounce = Timer(const Duration(milliseconds: 350), () => _runInternal(value));
   }
 
-  /// Lance la recherche : interne (Future) + externe (stream SSE progressif).
-  void _runSearch(String query) {
-    _extSub?.cancel();
-    setState(() {
-      _loadingInternal = true;
-      _loadingExternal = true;
-      _external = [];
-      _externalError = null;
-    });
+  String _lastInternalRun = ''; // dernière requête interne lancée (anti double fetch)
+  String _lastExternalRun = ''; // dernière requête SSE externe lancée
 
-    // Interne (Zik + Users) — rapide, one-shot
+  /// Recherche interne (Zik + Users) — Future one-shot.
+  void _runInternal(String query) {
+    _lastInternalRun = query;
+    setState(() => _loadingInternal = true);
     SearchEngine.searchInternal(query).then((res) {
-      if (!mounted || query != _query) return;
+      // On compare à l'identité du fetch (_lastInternalRun), pas au texte live :
+      // sinon des résultats valides sont jetés si l'utilisateur a tapé puis
+      // rétabli le même texte pendant le vol de la requête.
+      if (!mounted || query != _lastInternalRun) return;
       setState(() {
         _zik = res.zik;
         _users = res.users;
@@ -101,11 +110,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         _rebuildSuggestions();
       });
     });
+  }
 
-    // Externe (YouTube/SoundCloud) — streaming, chaque source dès qu'elle répond
+  /// Recherche externe (YouTube/SoundCloud) — stream SSE progressif.
+  /// N'est lancée que si au moins une chip externe est active.
+  void _runExternal(String query) {
+    _lastExternalRun = query;
+    _extSub?.cancel();
+    setState(() {
+      _loadingExternal = true;
+      _external = [];
+      _externalError = null;
+    });
     _extSub = TrackService.searchExternalStream(query).listen(
       (ev) {
-        if (!mounted || query != _query) return;
+        if (!mounted || query != _lastExternalRun) return;
         setState(() {
           if (ev.tracks.isNotEmpty) _external = [..._external, ...ev.tracks];
           if (ev.error != null) _externalError = ev.error;
@@ -122,6 +141,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
+  /// Lance les fetchs manquants pour la requête soumise selon les chips
+  /// actives (appelé au submit et quand une chip est activée après coup).
+  void _ensureFetches() {
+    if (!_showResults || _query.isEmpty) return;
+    final active = ref.read(searchFilterProvider);
+    final wantsExternal =
+        active.contains(SearchPlatform.youtube) || active.contains(SearchPlatform.soundcloud);
+    if (_query != _lastInternalRun) _runInternal(_query);
+    if (wantsExternal && _query != _lastExternalRun) _runExternal(_query);
+  }
+
   void _rebuildSuggestions() {
     _suggestions = SearchEngine.buildSuggestions(
       SearchResults(zik: _zik, users: _users, external: _external),
@@ -134,17 +164,24 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _controller.text = query;
     _focus.unfocus();
     recentSearches.add(query);
+    // Annule un éventuel debounce en attente : sans ça il relancerait la même
+    // recherche interne ~350ms après le submit.
+    _debounce?.cancel();
     setState(() {
       _query = query;
       _showResults = true;
-      _tab = SearchTab.zik;
+      _tab = SearchTab.tracks;
     });
-    _runSearch(query);
+    // Interne : réutilisé si le debounce l'a déjà fetchée. Externe : lancé
+    // seulement maintenant (jamais pendant la frappe) et selon les chips.
+    _ensureFetches();
   }
 
   void _clear() {
     _controller.clear();
     _extSub?.cancel();
+    _lastInternalRun = '';
+    _lastExternalRun = '';
     setState(() {
       _query = '';
       _showResults = false;
@@ -213,7 +250,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   style: TextStyle(color: kTextSecondary, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
               const Spacer(),
               if (recentSearches.items.isNotEmpty)
-                GestureDetector(
+                Tappable(
                   onTap: recentSearches.clear,
                   child: const Text('TOUT EFFACER',
                       style: TextStyle(color: kAccent, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
@@ -230,130 +267,151 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Widget _buildResults() {
     final tabs = [
-      ('ZIK', SearchTab.zik, _zik.length),
-      ('USER', SearchTab.user, _users.length),
-      ('EXTERNE', SearchTab.external, _external.length),
+      ('TITRES', SearchTab.tracks),
+      ('USER', SearchTab.user),
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Onglets ZIK / USER / EXTERNE
+        // Chips plateformes (multi-select, persistées) — onglet Titres uniquement
+        if (_tab == SearchTab.tracks)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+            child: Consumer(
+              builder: (context, ref, _) {
+                final active = ref.watch(searchFilterProvider);
+                final notifier = ref.read(searchFilterProvider.notifier);
+                return Row(
+                  children: SearchPlatform.values
+                      .map((p) => PlatformFilterChip(
+                            platform: p,
+                            active: active.contains(p),
+                            onTap: () {
+                              notifier.toggle(p);
+                              // Chip (ré)activée après le submit → lance le
+                              // fetch manquant (ex: SSE si YT/SC était off).
+                              _ensureFetches();
+                            },
+                          ))
+                      .toList(),
+                );
+              },
+            ),
+          ),
+
+        // Onglets TITRES / USER + bouton tri (à droite, ouvre la modale)
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+          padding: const EdgeInsets.fromLTRB(20, 6, 12, 0),
           child: Row(
-            children: tabs.map((t) {
-              final active = _tab == t.$2;
-              return GestureDetector(
-                onTap: () => setState(() => _tab = t.$2),
-                behavior: HitTestBehavior.opaque,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 22, top: 6, bottom: 6),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(t.$1,
-                          style: TextStyle(
-                            color: active ? kAccent : kTextSecondary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.5,
-                          )),
-                      const SizedBox(height: 4),
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        height: 2,
-                        width: active ? 24 : 0,
-                        color: kAccent,
+            children: [
+              Expanded(
+                child: Row(
+                  children: tabs.map((t) {
+                    final active = _tab == t.$2;
+                    return Tappable(
+                      onTap: () => setState(() => _tab = t.$2),
+                      behavior: HitTestBehavior.opaque,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 22, top: 6, bottom: 6),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(t.$1,
+                                style: TextStyle(
+                                  color: active ? kAccent : kTextSecondary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.5,
+                                )),
+                            const SizedBox(height: 4),
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              height: 2,
+                              width: active ? 24 : 0,
+                              color: kAccent,
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
+                    );
+                  }).toList(),
                 ),
-              );
-            }).toList(),
+              ),
+              if (_tab == SearchTab.tracks)
+                IconButton(
+                  onPressed: _openSortSheet,
+                  icon: Icon(Icons.swap_vert_rounded,
+                      color: _sort != SearchSort.relevance ? kAccent : kTextSecondary, size: 22),
+                  tooltip: 'Trier',
+                ),
+            ],
           ),
         ),
         const Divider(height: 1, color: kDivider),
-
-        // Sous-onglets de tri (uniquement pour les listes de tracks)
-        if (_tab != SearchTab.user)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-            child: Row(
-              children: [
-                SortChip('PERTINENCE', _sort == SearchSort.relevance, () => setState(() => _sort = SearchSort.relevance)),
-                SortChip('DATE', _sort == SearchSort.date, () => setState(() => _sort = SearchSort.date)),
-                SortChip('ÉCOUTES', _sort == SearchSort.plays, () => setState(() => _sort = SearchSort.plays)),
-              ],
-            ),
-          ),
-
-        // Filtres plateforme (uniquement pour l'onglet Externe)
-        if (_tab == SearchTab.external)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 2, 20, 4),
-            child: Row(
-              children: [
-                PlatformChip(
-                  label: 'TOUT',
-                  active: _extPlatform == null,
-                  onTap: () => setState(() => _extPlatform = null),
-                ),
-                PlatformChip(
-                  label: 'YT MUSIC',
-                  platform: ExtPlatform.youtubeMusic,
-                  active: _extPlatform == ExtPlatform.youtubeMusic,
-                  onTap: () => setState(() => _extPlatform = ExtPlatform.youtubeMusic),
-                ),
-                PlatformChip(
-                  label: 'SOUNDCLOUD',
-                  platform: ExtPlatform.soundcloud,
-                  active: _extPlatform == ExtPlatform.soundcloud,
-                  onTap: () => setState(() => _extPlatform = ExtPlatform.soundcloud),
-                ),
-              ],
-            ),
-          ),
 
         Expanded(child: _buildResultList()),
       ],
     );
   }
 
+  // Modale de tri (PERTINENCE / DATE / ÉCOUTES) — ouverte via le bouton ↕.
+  Future<void> _openSortSheet() async {
+    final picked = await showAdaptiveSheet<SearchSort>(
+      context: context,
+      builder: (_) => _SortSheet(current: _sort),
+    );
+    if (picked != null) setState(() => _sort = picked);
+  }
+
   Widget _buildResultList() {
     switch (_tab) {
-      case SearchTab.zik:
-        if (_loadingInternal) return const ResultsLoader();
-        return _trackList(SearchEngine.sortTracks(_zik, _sort), external: false);
+      case SearchTab.tracks:
+        return Consumer(
+          builder: (context, ref, _) {
+            final active = ref.watch(searchFilterProvider);
+            final wantsMkzik = active.contains(SearchPlatform.mkzik);
+            final wantsYt = active.contains(SearchPlatform.youtube);
+            final wantsSc = active.contains(SearchPlatform.soundcloud);
+            final wantsExternal = wantsYt || wantsSc;
+
+            // Liste fusionnée d'abord : les guards (loader / erreur / vide)
+            // doivent se baser sur ce qui est VISIBLE avec les chips actives,
+            // pas sur les listes brutes (qui peuvent contenir des résultats
+            // de plateformes désactivées).
+            final merged = <Track>[
+              if (wantsMkzik) ..._zik,
+              ..._external.where((t) => (wantsYt && t.extPlatform == ExtPlatform.youtubeMusic) ||
+                  (wantsSc && t.extPlatform == ExtPlatform.soundcloud)),
+            ];
+
+            final stillLoading =
+                (wantsMkzik && _loadingInternal) || (wantsExternal && _loadingExternal);
+            if (merged.isEmpty && stillLoading) {
+              return const ResultsLoader(label: 'Recherche en cours…');
+            }
+            if (merged.isEmpty && wantsExternal && _externalError != null) {
+              return ExternalErrorView(message: _externalError!);
+            }
+
+            return _trackList(
+              SearchEngine.sortTracks(merged, _sort, query: _query),
+              external: true,
+              footerLoading: wantsExternal && _loadingExternal,
+            );
+          },
+        );
       case SearchTab.user:
         if (_loadingInternal) return const ResultsLoader();
         return _userList(_users);
-      case SearchTab.external:
-        // L'externe arrive en streaming : on affiche au fur et à mesure,
-        // avec un loader tant qu'aucun résultat n'est encore là.
-        if (_external.isEmpty && _loadingExternal) {
-          return const ResultsLoader(label: 'Recherche YouTube / SoundCloud…');
-        }
-        // Erreur visible (au lieu d'un vide silencieux) si rien n'est revenu
-        if (_external.isEmpty && _externalError != null) {
-          return ExternalErrorView(message: _externalError!);
-        }
-        // Filtre par plateforme (YT Music / SoundCloud) si sélectionné
-        final ext = _extPlatform == null
-            ? _external
-            : _external.where((t) => t.extPlatform == _extPlatform).toList();
-        return _trackList(
-          SearchEngine.sortTracks(ext, _sort),
-          external: true,
-          footerLoading: _loadingExternal,
-        );
     }
   }
 
   Widget _trackList(List<Track> tracks, {required bool external, bool footerLoading = false}) {
     if (tracks.isEmpty) return const EmptyResults();
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      // Padding bas augmenté quand le player flotte par-dessus la liste
+      padding: EdgeInsets.fromLTRB(16, 8, 16, 8 + miniPlayerListPadding(ref)),
       // +1 ligne pour le loader de fin tant que le stream externe continue
       itemCount: tracks.length + (footerLoading ? 1 : 0),
       itemBuilder: (_, i) {
@@ -384,6 +442,66 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: users.length,
       itemBuilder: (_, i) => ResultUserRow(user: users[i]),
+    );
+  }
+}
+
+/// Modale de tri des résultats — ouverte via le bouton ↕ (mobile : bottom
+/// sheet ; desktop : dialog centré, cf. [showAdaptiveSheet]).
+class _SortSheet extends StatelessWidget {
+  final SearchSort current;
+  const _SortSheet({required this.current});
+
+  static const _options = [
+    (SearchSort.relevance, 'Pertinence', Icons.auto_awesome_rounded),
+    (SearchSort.date, 'Plus récents', Icons.schedule_rounded),
+    (SearchSort.plays, 'Plus écoutés', Icons.trending_up_rounded),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 10),
+          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Trier par',
+                  style: TextStyle(color: kTextPrimary, fontSize: 15, fontWeight: FontWeight.w700)),
+            ),
+          ),
+          const Divider(height: 1, color: kBorderSoft),
+          ..._options.map((o) {
+            final active = current == o.$1;
+            return InkWell(
+              onTap: () => Navigator.of(context).pop(o.$1),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                child: Row(
+                  children: [
+                    Icon(o.$3, color: active ? kAccent : kTextSecondary, size: 22),
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Text(o.$2,
+                          style: TextStyle(
+                            color: active ? kAccent : kTextPrimary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          )),
+                    ),
+                    if (active) const Icon(Icons.check_rounded, color: kAccent, size: 20),
+                  ],
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 }

@@ -4,8 +4,9 @@ import '../../models/track.dart';
 import '../../models/search_user.dart';
 import '../../services/track_service.dart';
 
-/// Onglets de résultats (cf. maquette : ZIK / USER / EXTERNE)
-enum SearchTab { zik, user, external }
+/// Onglets de résultats : titres (Mkzik + externe fusionnés, filtrés par
+/// plateforme) et utilisateurs.
+enum SearchTab { tracks, user }
 
 /// Tri des résultats (cf. maquette : PERTINENCE / DATE / ÉCOUTES)
 enum SearchSort { relevance, date, plays }
@@ -67,7 +68,7 @@ class SearchEngine {
   static List<Suggestion> buildSuggestions(SearchResults r) {
     final out = <Suggestion>[];
     for (final t in r.zik.take(2)) {
-      out.add(Suggestion(label: t.title, subtitle: t.artist, kind: SearchTab.zik, track: t));
+      out.add(Suggestion(label: t.title, subtitle: t.artist, kind: SearchTab.tracks, track: t));
     }
     for (final u in r.users.take(1)) {
       out.add(Suggestion(
@@ -78,17 +79,27 @@ class SearchEngine {
       ));
     }
     for (final t in r.external.take(2)) {
-      out.add(Suggestion(label: t.title, subtitle: t.artist, kind: SearchTab.external, track: t));
+      out.add(Suggestion(label: t.title, subtitle: t.artist, kind: SearchTab.tracks, track: t));
     }
     return out;
   }
 
   /// Trie une liste de tracks selon le critère choisi.
-  static List<Track> sortTracks(List<Track> tracks, SearchSort sort) {
+  /// [query] est requis pour `relevance` quand [tracks] mélange plusieurs
+  /// sources (Mkzik + externe) : chaque backend a son propre ordre de
+  /// pertinence, donc on recalcule un score commun côté front pour obtenir
+  /// un classement unique au lieu de blocs séparés par source.
+  static List<Track> sortTracks(List<Track> tracks, SearchSort sort, {String? query}) {
     final list = [...tracks];
     switch (sort) {
       case SearchSort.relevance:
-        break; // ordre d'origine (pertinence backend)
+        if (query == null || query.trim().isEmpty) break; // ordre d'origine (mono-source)
+        final scored = list.asMap().entries.map((e) => (e.value, _relevance(e.value, query), e.key)).toList();
+        scored.sort((a, b) {
+          final cmp = b.$2.compareTo(a.$2);
+          return cmp != 0 ? cmp : a.$3.compareTo(b.$3); // stable : ordre d'origine à égalité
+        });
+        return scored.map((e) => e.$1).toList();
       case SearchSort.date:
         // Tri par date de publication réelle, plus récent d'abord.
         // Les tracks sans date connue (souvent externes) sont reléguées en fin,
@@ -105,6 +116,47 @@ class SearchEngine {
         list.sort((a, b) => b.listen.compareTo(a.listen));
     }
     return list;
+  }
+
+  /// Score de pertinence texte comparant [t] à [query], indépendant de la
+  /// source — permet de classer Mkzik/YouTube/SoundCloud ensemble.
+  /// Le match ARTISTE pèse autant que le titre : les titres YouTube embarquent
+  /// l'artiste dans le titre (« Drake - God's Plan ») alors que les tracks
+  /// Mkzik sont propres — sans ça, une recherche par artiste reléguait les
+  /// tracks Mkzik sous les résultats YouTube.
+  static int _relevance(Track t, String query) {
+    final q = _normalize(query);
+    final title = _normalize(t.title);
+    final artist = _normalize(t.artist);
+
+    var score = 0;
+    if (title == q) {
+      score += 100;
+    } else if (title.startsWith(q)) {
+      score += 80;
+    } else if (title.contains(q)) {
+      score += 50;
+    }
+    if (artist == q) {
+      score += 90;
+    } else if (artist.startsWith(q)) {
+      score += 70;
+    } else if (artist.contains(q)) {
+      score += 30;
+    }
+    return score;
+  }
+
+  /// Minuscules + accents/apostrophes normalisés ("Beyoncé" ↔ "beyonce",
+  /// "God's" ↔ "gods") pour un matching tolérant à la saisie.
+  static String _normalize(String s) {
+    var out = s.trim().toLowerCase();
+    const accents = 'àáâãäåçèéêëìíîïñòóôõöùúûüýÿ';
+    const plain = 'aaaaaaceeeeiiiinooooouuuuyy';
+    for (var i = 0; i < accents.length; i++) {
+      out = out.replaceAll(accents[i], plain[i]);
+    }
+    return out.replaceAll('’', '').replaceAll("'", '');
   }
 
   static List<Track> _demoFilter(String query) {
