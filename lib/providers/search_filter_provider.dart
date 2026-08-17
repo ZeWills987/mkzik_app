@@ -4,47 +4,34 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Source d'une track dans les résultats de recherche.
 enum SearchPlatform { mkzik, youtube, soundcloud }
 
-const _kPrefKey = 'search_platforms_v1';
+const _kPrefKey = 'search_platform_v2';
 
-/// Ensemble des plateformes actives pour filtrer les résultats de recherche.
-/// Persisté en local (shared_preferences) — au moins une plateforme reste
-/// toujours active pour éviter une recherche vide.
-class SearchFilterNotifier extends StateNotifier<Set<SearchPlatform>> {
-  SearchFilterNotifier() : super(SearchPlatform.values.toSet()) {
+/// Plateforme active pour les résultats de recherche — switch single-select
+/// (une seule à la fois), persisté en local. Mkzik par défaut.
+class SearchFilterNotifier extends StateNotifier<SearchPlatform> {
+  SearchFilterNotifier() : super(SearchPlatform.mkzik) {
     _load();
   }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList(_kPrefKey);
-    if (saved == null || saved.isEmpty) return;
-    final restored = saved
-        .map((s) => SearchPlatform.values.where((p) => p.name == s))
-        .where((matches) => matches.isNotEmpty)
-        .map((matches) => matches.first)
-        .toSet();
-    if (restored.isNotEmpty) state = restored;
-  }
-
-  Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_kPrefKey, state.map((p) => p.name).toList());
-  }
-
-  /// Bascule une plateforme — ignoré si c'est la dernière active.
-  void toggle(SearchPlatform platform) {
-    if (state.contains(platform)) {
-      if (state.length == 1) return; // toujours ≥1 active
-      state = {...state}..remove(platform);
-    } else {
-      state = {...state, platform};
+    final saved = prefs.getString(_kPrefKey);
+    if (saved == null) return;
+    for (final p in SearchPlatform.values) {
+      if (p.name == saved) {
+        state = p;
+        return;
+      }
     }
-    _persist();
   }
 
-  bool isActive(SearchPlatform platform) => state.contains(platform);
+  Future<void> select(SearchPlatform platform) async {
+    state = platform;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kPrefKey, platform.name);
+  }
 }
 
-final searchFilterProvider = StateNotifierProvider<SearchFilterNotifier, Set<SearchPlatform>>(
+final searchFilterProvider = StateNotifierProvider<SearchFilterNotifier, SearchPlatform>(
   (ref) => SearchFilterNotifier(),
 );

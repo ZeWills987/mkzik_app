@@ -37,7 +37,20 @@ class TrackCover extends StatelessWidget {
                 // Décode l'image à la taille affichée (× devicePixelRatio) au
                 // lieu de la pleine résolution : mémoire et jank de décodage
                 // divisés d'un facteur ~10-50 sur les vignettes de listes.
+                // ⚠️ Largeur SEULE : si on force aussi memCacheHeight à la même
+                // valeur (carré), le décodeur étire l'image de façon non
+                // uniforme quand la source n'est pas carrée (déformation),
+                // avant même que BoxFit.cover n'intervienne. Une seule
+                // dimension laisse le décodeur préserver le ratio d'origine.
                 memCacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
+                // Fondu court (défaut 500ms) : sur une liste qui défile vite,
+                // des dizaines de crossfades longs qui se chevauchent coûtent
+                // cher (AnimatedSwitcher par image) sans bénéfice visuel réel.
+                fadeInDuration: const Duration(milliseconds: 120),
+                fadeOutDuration: const Duration(milliseconds: 80),
+                // Filtrage moins coûteux pour les petites vignettes de liste
+                // (52px et moins) — imperceptible à cette taille, net gain GPU.
+                filterQuality: size <= 56 ? FilterQuality.low : FilterQuality.medium,
                 placeholder: (context, u) => _gradient(),
                 errorWidget: (context, u, error) => _gradient(),
               )

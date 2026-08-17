@@ -111,6 +111,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   bool _radioBusy = false; // une extension est déjà en cours
   String? _radioFromId; // id du titre depuis lequel on a déjà étendu (anti-doublon)
 
+  // Bannière « Chargement du flux… » actuellement affichée (import_provider) —
+  // permet de la fermer EN FORCE dès qu'un nouveau titre est demandé, sans
+  // attendre que la résolution obsolète se termine (ou timeout) d'elle-même.
+  String? _activeStreamJobId;
+
   // Verrou : bloque _onCurrentIndexChanged pendant les manipulations de playlist
   // (insertions d'hydratation, reconstruction radio) pour éviter les faux "track changed".
   bool _suppressIndexChange = false;
@@ -151,17 +156,31 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _audio.playbackEventStream.listen((_) {}, onError: (Object e) {
       mkLog('Mkzik ▶ erreur de flux en lecture : $e');
       final t = state.currentTrack;
+      final unavailable = _isTrackUnavailable(e);
       if (t != null && _playerTracks.length > 1) {
-        _ref.read(noticeProvider.notifier).show('« ${t.title} » indisponible — titre suivant');
+        _ref.read(noticeProvider.notifier).show(unavailable
+            ? '« ${t.title} » indisponible — titre suivant'
+            : 'Erreur réseau sur « ${t.title} » — titre suivant');
         unawaited(next());
       } else {
-        _ref.read(noticeProvider.notifier).show('Lecture interrompue, réessaie');
+        _ref
+            .read(noticeProvider.notifier)
+            .show(unavailable ? 'Titre indisponible' : 'Lecture interrompue, réessaie');
         state = state.copyWith(isPlaying: false);
       }
     });
 
     // Boucle de file par défaut → prev/next cycliques et stables dans la notif.
     _audio.setLoopMode(LoopMode.all);
+  }
+
+  /// Le proxy `/stream` renvoie 404 + "Titre indisponible" quand la track est
+  /// réellement morte (supprimée, privée, géo-bloquée) et 502 pour un souci
+  /// transitoire. just_audio enrobe l'erreur HTTP dans son message → on matche
+  /// le code/libellé dans le texte (les plateformes formatent différemment).
+  static bool _isTrackUnavailable(Object e) {
+    final s = '$e';
+    return s.contains('404') || s.contains('Titre indisponible');
   }
 
   // Configure la session audio (catégorie musique) — requis pour une lecture
@@ -328,6 +347,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final token = ++_playToken;
     _radioFromId = null; // nouvelle file → autorise une nouvelle extension radio
 
+    // Ferme EN FORCE la bannière de stream du titre précédent si elle traîne
+    // encore : sa résolution est désormais obsolète (token changé), inutile
+    // d'attendre qu'elle se termine ou time out d'elle-même pour la retirer.
+    if (_activeStreamJobId != null) {
+      _ref.read(importProvider.notifier).dismiss(_activeStreamJobId!);
+      _activeStreamJobId = null;
+    }
+
     // Affichage immédiat du titre demandé (avant import/résolution)
     state = state.copyWith(
       currentTrack: track,
@@ -365,20 +392,40 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final streamJobId = (track.needsImport && track.pageUrl.isNotEmpty)
         ? importNotifier.startStream(track)
         : null;
+    _activeStreamJobId = streamJobId;
 
     // Démarrage IMMÉDIAT avec une playlist d'un seul titre (le titre cliqué) →
     // pas d'attente de la signature du reste de la file. Le reste est hydraté
     // en arrière-plan (cf. _hydrateQueue) sans couper la lecture.
     // 2 tentatives : les flux externes (yt-dlp) échouent parfois de façon
     // transitoire — un retry immédiat suffit souvent.
+    // Ferme le job de stream (bannière) et oublie qu'il est actif — à appeler
+    // sur CHAQUE sortie (succès, erreur, obsolescence) pour ne jamais laisser
+    // de bannière orpheline.
+    void closeStreamJob({String? errorMessage}) {
+      if (streamJobId == null) return;
+      if (errorMessage != null) {
+        importNotifier.streamError(streamJobId, errorMessage);
+      } else {
+        importNotifier.dismiss(streamJobId);
+      }
+      if (_activeStreamJobId == streamJobId) _activeStreamJobId = null;
+    }
+
     var started = false;
     for (var attempt = 1; attempt <= 2 && !started; attempt++) {
       try {
         _playerTracks = [current];
         _playlist = ConcatenatingAudioSource(children: [_audioSourceFor(current)]);
-        await _audio.setAudioSource(_playlist!, initialIndex: 0, initialPosition: Duration.zero);
+        // Timeout explicite : sans lui, un flux Python qui accepte la connexion
+        // sans jamais répondre laisse cet await suspendu indéfiniment — aucune
+        // exception, donc le catch n'est jamais atteint et la bannière
+        // "Chargement du flux…" reste affichée pour toujours.
+        await _audio
+            .setAudioSource(_playlist!, initialIndex: 0, initialPosition: Duration.zero)
+            .timeout(Duration(seconds: track.needsStream ? 25 : 15));
         if (token != _playToken) {
-          if (streamJobId != null) importNotifier.dismiss(streamJobId);
+          closeStreamJob();
           return;
         }
         await _audio.setLoopMode(_loopFor(state.repeatMode));
@@ -386,7 +433,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         await _audio.play();
         started = true;
         // Flux prêt → on retire le spinner.
-        if (streamJobId != null) importNotifier.dismiss(streamJobId);
+        closeStreamJob();
         // Démarre le tracking d'écoute du titre courant (l'event d'index initial
         // est "same track" → on le démarre explicitement ici).
         unawaited(_beginPlay(current));
@@ -394,11 +441,21 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         unawaited(_warmupNext());
       } catch (e) {
         mkLog('Mkzik ▶ erreur lecture "${track.title}" (tentative $attempt/2) : $e');
-        if (token != _playToken) return;
-        if (attempt == 2) {
-          if (streamJobId != null) {
-            importNotifier.streamError(streamJobId, 'Titre indisponible, réessaie plus tard');
-          }
+        if (token != _playToken) {
+          closeStreamJob();
+          return;
+        }
+        // 404 du proxy /stream = titre réellement indisponible (supprimé,
+        // privé, géo-bloqué) → inutile de retenter ; timeout/502/autres =
+        // transitoire → un retry immédiat vaut le coup.
+        final timedOut = e is TimeoutException;
+        final unavailable = _isTrackUnavailable(e);
+        if (unavailable || attempt == 2) {
+          closeStreamJob(
+            errorMessage: unavailable
+                ? 'Titre indisponible'
+                : (timedOut ? 'Le flux met trop de temps à répondre' : 'Erreur réseau, réessaie'),
+          );
           state = state.copyWith(isPlaying: false);
           return;
         }

@@ -132,6 +132,7 @@ Widget _allSliver(
         );
       },
       childCount: items.length,
+      addAutomaticKeepAlives: false,
     ),
   );
 }
@@ -176,6 +177,7 @@ Widget _playlistsSliver(BuildContext context, WidgetRef ref, AsyncValue<List<Pla
             ),
           ),
           childCount: playlists.length,
+          addAutomaticKeepAlives: false,
         ),
       );
     },
@@ -204,6 +206,7 @@ Widget _favouritesSliver(BuildContext context, WidgetRef ref, PagedTracksState f
         ),
       ),
       childCount: tracks.length,
+      addAutomaticKeepAlives: false,
     ),
   );
 }

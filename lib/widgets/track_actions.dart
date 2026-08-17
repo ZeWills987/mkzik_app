@@ -14,31 +14,54 @@ import '../services/playlist_service.dart';
 import '../theme/app_theme.dart';
 import '../navigation/app_nav.dart';
 import 'adaptive_sheet.dart';
-import 'pex_badge.dart';
 import 'tappable.dart';
 import 'track_cover.dart';
 
 /// Vignette carrée d'un track (cover réseau ou dégradé + note).
+/// [dot] : pastille de statut en coin de cover (plateforme d'origine ou
+/// présence Mkzik selon le contexte) — null = pas de pastille.
 class TrackSquareThumb extends StatelessWidget {
   final Track track;
   final double size;
-  const TrackSquareThumb({super.key, required this.track, this.size = 36});
+  final Color? dot;
+  const TrackSquareThumb({super.key, required this.track, this.size = 36, this.dot});
 
   @override
   Widget build(BuildContext context) {
-    if (track.hasCover) return TrackCover(track: track, size: size, radius: 8);
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: track.gradientColors,
+    final Widget cover = track.hasCover
+        ? TrackCover(track: track, size: size, radius: 8)
+        : Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: track.gradientColors,
+              ),
+            ),
+            child: Icon(Icons.music_note, color: Colors.white70, size: size * 0.5),
+          );
+    if (dot == null) return cover;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        cover,
+        Positioned(
+          right: -3,
+          bottom: -3,
+          child: Container(
+            width: 13,
+            height: 13,
+            decoration: BoxDecoration(
+              color: dot,
+              shape: BoxShape.circle,
+              border: Border.all(color: kBg, width: 2),
+            ),
+          ),
         ),
-      ),
-      child: Icon(Icons.music_note, color: Colors.white70, size: size * 0.5),
+      ],
     );
   }
 }
@@ -93,6 +116,8 @@ class PlatformLogo extends StatelessWidget {
 
 /// Badge plateforme(s) d'origine d'un track — affiche un logo par plateforme
 /// identifiée (une track interne peut venir de YouTube ET SoundCloud).
+/// Les tracks INTERNES sont préfixées de l'icône Mkzik (accent) : sans ça,
+/// une interne importée de YouTube serait indiscernable d'une externe.
 class PlatformBadge extends StatelessWidget {
   final Track track;
   final double size;
@@ -101,10 +126,16 @@ class PlatformBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final platforms = track.extPlatforms;
-    if (platforms.isEmpty) return PlatformLogo(platform: track.extPlatform, size: size);
+    final mkzikMark = !track.isExternal
+        ? Icon(Icons.graphic_eq_rounded, color: kAccent, size: size)
+        : null;
+    if (platforms.isEmpty) {
+      return mkzikMark ?? PlatformLogo(platform: track.extPlatform, size: size);
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (mkzikMark != null) ...[mkzikMark, const SizedBox(width: 5)],
         for (var i = 0; i < platforms.length; i++) ...[
           if (i > 0) const SizedBox(width: 5),
           PlatformLogo(platform: platforms[i], size: size),
@@ -114,6 +145,14 @@ class PlatformBadge extends StatelessWidget {
   }
 }
 
+/// Signification de la pastille de coin de cover, selon le contexte de liste :
+/// - [origin] (listes Mkzik) : rouge/orange = importée de YouTube/SoundCloud,
+///   rien = exclu Mkzik ;
+/// - [inMkzik] (onglets YouTube/SoundCloud) : violet = déjà dans la BD Mkzik,
+///   rien = externe à importer ;
+/// - [none] : jamais de pastille.
+enum TrackDot { none, origin, inMkzik }
+
 /// Ligne de résultat track (style page de recherche) — réutilisable.
 /// Tap = lecture, "…" = menu d'actions.
 class TrackResultRow extends ConsumerWidget {
@@ -121,6 +160,7 @@ class TrackResultRow extends ConsumerWidget {
   final VoidCallback onTap;
   final VoidCallback onMenu;
   final bool showPublishedAt; // affiche "il y a X" (date de sortie) si dispo
+  final TrackDot dot;
 
   const TrackResultRow({
     super.key,
@@ -128,7 +168,22 @@ class TrackResultRow extends ConsumerWidget {
     required this.onTap,
     required this.onMenu,
     this.showPublishedAt = false,
+    this.dot = TrackDot.origin,
   });
+
+  Color? get _dotColor {
+    switch (dot) {
+      case TrackDot.none:
+        return null;
+      case TrackDot.origin:
+        if (track.isExternal) return null; // contexte externe → pas de marque
+        final platforms = track.extPlatforms;
+        if (platforms.isEmpty) return null; // exclu Mkzik → état normal
+        return platforms.first == ExtPlatform.youtubeMusic ? kYtMusicRed : kSoundcloudOrange;
+      case TrackDot.inMkzik:
+        return track.isExternal ? null : kAccent; // violet = déjà sur Mkzik
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -140,7 +195,7 @@ class TrackResultRow extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(vertical: 11),
         child: Row(
           children: [
-            TrackSquareThumb(track: track, size: 52),
+            TrackSquareThumb(track: track, size: 52, dot: _dotColor),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -171,20 +226,6 @@ class TrackResultRow extends ConsumerWidget {
                       ),
                       Text('  ·  ${track.durationFormatted}',
                           style: const TextStyle(color: kTextSecondary, fontSize: 13)),
-                      // Badge Mini-Pex (remix / slowed / mashup…) si présent.
-                      // Flexible + rétrécissement : jamais d'overflow sur les
-                      // écrans étroits, le badge se réduit en dernier recours.
-                      if (track.pexTag != null)
-                        Flexible(
-                          child: Padding(
-                            padding: const EdgeInsets.only(left: 8),
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: PexBadge(tag: track.pexTag!, compact: true),
-                            ),
-                          ),
-                        ),
                     ],
                   ),
                   // Date de sortie en relatif (page search uniquement)
@@ -197,8 +238,7 @@ class TrackResultRow extends ConsumerWidget {
                 ],
               ),
             ),
-            // Logo plateforme d'origine — externes ET internes importées (platforms)
-            if (track.hasPlatformTag) Padding(padding: const EdgeInsets.only(right: 6), child: PlatformBadge(track: track)),
+            // (la plateforme d'origine est portée par la pastille de cover)
             Tappable(
               onTap: onMenu,
               behavior: HitTestBehavior.opaque,

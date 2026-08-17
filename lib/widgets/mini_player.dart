@@ -2,7 +2,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../models/track_visuals.dart';
 import '../providers/player_provider.dart';
 import '../navigation/app_nav.dart';
 import '../screens/player/widgets/lyrics_fullscreen.dart';
@@ -115,15 +114,7 @@ class MiniPlayer extends ConsumerWidget {
                 // Paroles : ouvre le plein écran (si le titre peut en avoir)
                 if (track.hasLyrics || track.needsStream)
                   Tappable(
-                    onTap: () {
-                      final accent = track.accent;
-                      LyricsFullscreen.open(
-                        context,
-                        track: track,
-                        accent: accent,
-                        accentLight: Color.lerp(accent, Colors.white, 0.18) ?? accent,
-                      );
-                    },
+                    onTap: () => LyricsFullscreen.open(context),
                     child: const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 6),
                       child: Icon(Icons.mic_none_rounded, color: kTextSecondary, size: 20),

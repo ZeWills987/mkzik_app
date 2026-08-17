@@ -25,6 +25,9 @@ class SearchScreen extends ConsumerStatefulWidget {
 }
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
+  // Nombre de résultats demandés par page à l'API Python (par plateforme).
+  static const _kExternalPageSize = 30;
+
   final _controller = TextEditingController();
   final _focus = FocusNode();
   Timer? _debounce;
@@ -38,7 +41,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   List<SearchUser> _users = [];
   List<Track> _external = [];
   bool _loadingInternal = false;
-  bool _loadingExternal = false;
+  bool _loadingExternal = false; // chargement de la 1ʳᵉ page externe
+  bool _loadingMoreExternal = false; // chargement d'une page suivante (scroll)
+  bool _hasMoreExternal = true; // reste-t-il des pages externes à charger ?
+  int _externalPage = 1;
   String? _externalError; // erreur de la recherche externe (SSE)
   List<Suggestion> _suggestions = const [];
 
@@ -76,6 +82,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       // Résultats vidés → les prochaines requêtes doivent refetcher
       _lastInternalRun = '';
       _lastExternalRun = '';
+      _externalPage = 1;
+      _hasMoreExternal = true;
       setState(() {
         _suggestions = const [];
         _zik = [];
@@ -112,44 +120,81 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     });
   }
 
-  /// Recherche externe (YouTube/SoundCloud) — stream SSE progressif.
+  /// Recherche externe (YouTube/SoundCloud) — stream SSE progressif, 1ʳᵉ page.
   /// N'est lancée que si au moins une chip externe est active.
   void _runExternal(String query) {
     _lastExternalRun = query;
     _extSub?.cancel();
+    _externalPage = 1;
+    _hasMoreExternal = true;
     setState(() {
       _loadingExternal = true;
+      _loadingMoreExternal = false;
       _external = [];
       _externalError = null;
     });
-    _extSub = TrackService.searchExternalStream(query).listen(
+    _fetchExternalPage(query, 1);
+  }
+
+  /// Charge la page suivante de résultats externes (déclenché par le scroll).
+  void _loadMoreExternal() {
+    if (_query.isEmpty || !_showResults) return;
+    if (_loadingExternal || _loadingMoreExternal || !_hasMoreExternal) return;
+    if (ref.read(searchFilterProvider) == SearchPlatform.mkzik) return;
+    _externalPage++;
+    setState(() => _loadingMoreExternal = true);
+    _fetchExternalPage(_query, _externalPage);
+  }
+
+  /// Fetch commun 1ʳᵉ page / pages suivantes — `GET /search/stream?...&page=`.
+  void _fetchExternalPage(String query, int page) {
+    var receivedThisPage = 0;
+    _extSub = TrackService.searchExternalStream(query, maxResults: _kExternalPageSize, page: page).listen(
       (ev) {
         if (!mounted || query != _lastExternalRun) return;
         setState(() {
-          if (ev.tracks.isNotEmpty) _external = [..._external, ...ev.tracks];
+          if (ev.tracks.isNotEmpty) {
+            _external = [..._external, ...ev.tracks];
+            receivedThisPage += ev.tracks.length;
+          }
           if (ev.error != null) _externalError = ev.error;
-          if (ev.done) _loadingExternal = false;
+          if (ev.done) {
+            _loadingExternal = false;
+            _loadingMoreExternal = false;
+            // Page vide (aucune track sur les 2 plateformes) → plus rien à paginer
+            if (receivedThisPage == 0) _hasMoreExternal = false;
+          }
           _rebuildSuggestions();
         });
       },
       onError: (_) {
-        if (mounted) setState(() => _loadingExternal = false);
+        if (mounted) {
+          setState(() {
+            _loadingExternal = false;
+            _loadingMoreExternal = false;
+          });
+        }
       },
       onDone: () {
-        if (mounted) setState(() => _loadingExternal = false);
+        if (mounted) {
+          setState(() {
+            _loadingExternal = false;
+            _loadingMoreExternal = false;
+          });
+        }
       },
     );
   }
 
-  /// Lance les fetchs manquants pour la requête soumise selon les chips
-  /// actives (appelé au submit et quand une chip est activée après coup).
+  /// Lance les fetchs manquants pour la requête soumise selon la plateforme
+  /// sélectionnée (appelé au submit et au changement de plateforme).
+  /// L'interne est toujours fetchée (rapide, alimente aussi l'onglet USER) ;
+  /// le SSE externe (une seule requête pour YT+SC) seulement si besoin.
   void _ensureFetches() {
     if (!_showResults || _query.isEmpty) return;
-    final active = ref.read(searchFilterProvider);
-    final wantsExternal =
-        active.contains(SearchPlatform.youtube) || active.contains(SearchPlatform.soundcloud);
+    final selected = ref.read(searchFilterProvider);
     if (_query != _lastInternalRun) _runInternal(_query);
-    if (wantsExternal && _query != _lastExternalRun) _runExternal(_query);
+    if (selected != SearchPlatform.mkzik && _query != _lastExternalRun) _runExternal(_query);
   }
 
   void _rebuildSuggestions() {
@@ -182,6 +227,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _extSub?.cancel();
     _lastInternalRun = '';
     _lastExternalRun = '';
+    _externalPage = 1;
+    _hasMoreExternal = true;
     setState(() {
       _query = '';
       _showResults = false;
@@ -274,23 +321,23 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Chips plateformes (multi-select, persistées) — onglet Titres uniquement
+        // Switch plateforme (single-select, persisté) — onglet Titres uniquement
         if (_tab == SearchTab.tracks)
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
             child: Consumer(
               builder: (context, ref, _) {
-                final active = ref.watch(searchFilterProvider);
+                final selected = ref.watch(searchFilterProvider);
                 final notifier = ref.read(searchFilterProvider.notifier);
                 return Row(
                   children: SearchPlatform.values
                       .map((p) => PlatformFilterChip(
                             platform: p,
-                            active: active.contains(p),
+                            active: selected == p,
                             onTap: () {
-                              notifier.toggle(p);
-                              // Chip (ré)activée après le submit → lance le
-                              // fetch manquant (ex: SSE si YT/SC était off).
+                              notifier.select(p);
+                              // Bascule vers YT/SC après le submit → lance le
+                              // fetch externe s'il n'a pas encore eu lieu.
                               _ensureFetches();
                             },
                           ))
@@ -350,7 +397,19 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         ),
         const Divider(height: 1, color: kDivider),
 
-        Expanded(child: _buildResultList()),
+        Expanded(
+          // Approche du bas de la liste (onglet Titres) → page suivante de
+          // résultats externes (GET /search/stream?...&page=N+1).
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (_tab == SearchTab.tracks && n.metrics.pixels >= n.metrics.maxScrollExtent - 400) {
+                _loadMoreExternal();
+              }
+              return false;
+            },
+            child: _buildResultList(),
+          ),
+        ),
       ],
     );
   }
@@ -369,35 +428,44 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       case SearchTab.tracks:
         return Consumer(
           builder: (context, ref, _) {
-            final active = ref.watch(searchFilterProvider);
-            final wantsMkzik = active.contains(SearchPlatform.mkzik);
-            final wantsYt = active.contains(SearchPlatform.youtube);
-            final wantsSc = active.contains(SearchPlatform.soundcloud);
-            final wantsExternal = wantsYt || wantsSc;
+            final selected = ref.watch(searchFilterProvider);
+            final isExternal = selected != SearchPlatform.mkzik;
 
-            // Liste fusionnée d'abord : les guards (loader / erreur / vide)
-            // doivent se baser sur ce qui est VISIBLE avec les chips actives,
-            // pas sur les listes brutes (qui peuvent contenir des résultats
-            // de plateformes désactivées).
-            final merged = <Track>[
-              if (wantsMkzik) ..._zik,
-              ..._external.where((t) => (wantsYt && t.extPlatform == ExtPlatform.youtubeMusic) ||
-                  (wantsSc && t.extPlatform == ExtPlatform.soundcloud)),
-            ];
+            // Onglet Mkzik : toute la BD (exclus + importées) — l'onglet par
+            // défaut doit toujours répondre ; la pastille distingue l'origine
+            // (rouge/orange = importée, rien = exclu Mkzik).
+            // Onglets YouTube / SoundCloud : les externes de la plateforme
+            // + les tracks Mkzik importées de cette plateforme (pastille
+            // violette = déjà dans Mkzik ; l'API Python exclut les importées
+            // de ses résultats → pas de doublon au sein d'un onglet).
+            final tracks = switch (selected) {
+              SearchPlatform.mkzik => _zik,
+              SearchPlatform.youtube => [
+                  ..._zik.where((t) => t.extPlatforms.contains(ExtPlatform.youtubeMusic)),
+                  ..._external.where((t) => t.extPlatform == ExtPlatform.youtubeMusic),
+                ],
+              SearchPlatform.soundcloud => [
+                  ..._zik.where((t) => t.extPlatforms.contains(ExtPlatform.soundcloud)),
+                  ..._external.where((t) => t.extPlatform == ExtPlatform.soundcloud),
+                ],
+            };
 
             final stillLoading =
-                (wantsMkzik && _loadingInternal) || (wantsExternal && _loadingExternal);
-            if (merged.isEmpty && stillLoading) {
+                isExternal ? (_loadingExternal || _loadingInternal) : _loadingInternal;
+            if (tracks.isEmpty && stillLoading) {
               return const ResultsLoader(label: 'Recherche en cours…');
             }
-            if (merged.isEmpty && wantsExternal && _externalError != null) {
+            if (tracks.isEmpty && isExternal && _externalError != null) {
               return ExternalErrorView(message: _externalError!);
             }
 
             return _trackList(
-              SearchEngine.sortTracks(merged, _sort, query: _query),
-              external: true,
-              footerLoading: wantsExternal && _loadingExternal,
+              SearchEngine.sortTracks(tracks, _sort, query: _query),
+              external: isExternal,
+              footerLoading: isExternal && (_loadingExternal || _loadingMoreExternal),
+              // Pastille contextuelle : onglet Mkzik → origine (rouge/orange
+              // = importée) ; onglets YT/SC → violet = déjà dans Mkzik.
+              dot: isExternal ? TrackDot.inMkzik : TrackDot.origin,
             );
           },
         );
@@ -407,11 +475,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
   }
 
-  Widget _trackList(List<Track> tracks, {required bool external, bool footerLoading = false}) {
+  Widget _trackList(List<Track> tracks,
+      {required bool external, bool footerLoading = false, TrackDot dot = TrackDot.origin}) {
     if (tracks.isEmpty) return const EmptyResults();
     return ListView.builder(
       // Padding bas augmenté quand le player flotte par-dessus la liste
       padding: EdgeInsets.fromLTRB(16, 8, 16, 8 + miniPlayerListPadding(ref)),
+      // TrackResultRow n'a pas d'état à préserver hors écran → pas besoin de
+      // le garder vivant quand il sort du viewport (moins de mémoire/coût sur
+      // les listes longues, notamment avec 60-80 résultats fusionnés).
+      addAutomaticKeepAlives: false,
       // +1 ligne pour le loader de fin tant que le stream externe continue
       itemCount: tracks.length + (footerLoading ? 1 : 0),
       itemBuilder: (_, i) {
@@ -429,6 +502,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         return TrackResultRow(
           track: tracks[i],
           showPublishedAt: true,
+          dot: dot,
           onTap: () => ref.read(playerProvider.notifier).playTrack(tracks[i], queue: tracks),
           onMenu: () => showTrackActionsSheet(context, ref, tracks[i]),
         );

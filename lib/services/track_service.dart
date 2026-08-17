@@ -37,10 +37,18 @@ class TrackService {
     return _usersFrom(res.orElse(null));
   }
 
-  /// Recherche externe en **streaming SSE** (YouTube Music + SoundCloud).
-  /// `GET {PYTHON}search/stream?query=` → events `ytm` / `sc` / `error` / `done`.
-  static Stream<ExternalSearchEvent> searchExternalStream(String query) async* {
-    final uri = Uri.parse('${ApiConfig.pythonUrl}search/stream?query=${Uri.encodeQueryComponent(query)}');
+  /// Recherche externe en **streaming SSE** (YouTube Music + SoundCloud), paginée.
+  /// `GET {PYTHON}search/stream?query=&max_results=&page=` → events `ytm` / `sc` / `error` / `done`.
+  static Stream<ExternalSearchEvent> searchExternalStream(
+    String query, {
+    int maxResults = 30,
+    int page = 1,
+  }) async* {
+    final uri = Uri.parse('${ApiConfig.pythonUrl}search/stream').replace(queryParameters: {
+      'query': query,
+      'max_results': '$maxResults',
+      'page': '$page',
+    });
     mkLog('Mkzik 🔎 SSE connect → $uri');
     final request = http.Request('GET', uri)..headers['Accept'] = 'text/event-stream';
     final client = http.Client();

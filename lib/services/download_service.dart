@@ -44,14 +44,23 @@ class DownloadService {
         onError?.call('Serveur indisponible (${startRes.statusCode})');
         return null;
       }
-      final downloadId = (jsonDecode(startRes.body) as Map)['download_id'];
+      final startBody = jsonDecode(startRes.body) as Map;
+      final downloadId = startBody['download_id'];
       mkLog('Mkzik ⬇ download_id = $downloadId');
       if (downloadId == null) {
         onError?.call('Réponse invalide du serveur');
         return null;
       }
 
-      onStatus?.call('downloading');
+      // Le serveur peut mettre l'import en file d'attente ({status: "queued",
+      // queue_position: N}) avant de le traiter.
+      final initialStatus = (startBody['status'] ?? '').toString();
+      if (initialStatus == 'queued') {
+        mkLog('Mkzik ⬇ en file d\'attente (position ${startBody['queue_position']})');
+        onStatus?.call('queued');
+      } else {
+        onStatus?.call('downloading');
+      }
 
       // 2) Écoute du flux SSE
       final streamUri = Uri.parse('${ApiConfig.pythonUrl}download/$downloadId/stream');
@@ -87,6 +96,10 @@ class DownloadService {
             } else if (event == 'progress') {
               mkLog('Mkzik ⬇ progress → ${data['status']}');
               onStatus?.call((data['status'] ?? 'downloading').toString());
+            } else if (event == 'queued') {
+              // Émis avant `extracting` quand le serveur est chargé.
+              mkLog('Mkzik ⬇ queued → $data');
+              onStatus?.call('queued');
             }
           }
         }

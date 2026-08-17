@@ -309,12 +309,7 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
                           right: 4,
                           child: IconButton(
                             tooltip: 'Plein écran',
-                            onPressed: () => LyricsFullscreen.open(
-                              context,
-                              track: track,
-                              accent: accent,
-                              accentLight: accentLight,
-                            ),
+                            onPressed: () => LyricsFullscreen.open(context),
                             icon: const Icon(Icons.open_in_full, color: Colors.white54, size: 20),
                           ),
                         ),

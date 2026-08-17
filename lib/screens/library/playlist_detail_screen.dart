@@ -106,6 +106,7 @@ class PlaylistDetailScreen extends ConsumerWidget {
                         );
                       },
                       childCount: tracks.length,
+                      addAutomaticKeepAlives: false,
                     ),
                   ),
                 const SliverToBoxAdapter(child: SizedBox(height: 24)),

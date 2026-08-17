@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../providers/notifications_provider.dart';
 import '../../widgets/mini_player.dart' show miniPlayerListPadding;
+import '../../widgets/tappable.dart';
+import '../notifications/notifications_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/track.dart';
 import '../../models/track_visuals.dart';
@@ -217,16 +220,45 @@ class _Header extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          // Bouton notification (contour)
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFF3A3A5A), width: 1.5),
-            ),
-            child: const Icon(Icons.notifications_outlined, color: kTextPrimary, size: 20),
-          ),
+          // Cloche notifications : badge non-lues + ouverture du centre
+          Consumer(builder: (context, ref, _) {
+            final unread = ref.watch(unreadNotificationsProvider);
+            return Tappable(
+              onTap: () => NotificationsScreen.open(context),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFF3A3A5A), width: 1.5),
+                    ),
+                    child: const Icon(Icons.notifications_outlined, color: kTextPrimary, size: 20),
+                  ),
+                  if (unread > 0)
+                    Positioned(
+                      top: -2,
+                      right: -2,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: kAccent,
+                          borderRadius: BorderRadius.circular(9),
+                          border: Border.all(color: kBg, width: 1.5),
+                        ),
+                        child: Text(
+                          unread > 99 ? '99+' : '$unread',
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }),
           const SizedBox(width: 10),
           // Avatar profil (cercle violet)
           Container(

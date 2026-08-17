@@ -111,6 +111,7 @@ class _TrackListScreenState extends ConsumerState<TrackListScreen> {
       child: ListView.builder(
         controller: _scroll,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        addAutomaticKeepAlives: false,
         // +1 ligne pour le loader de bas de liste tant qu'il reste des pages
         itemCount: tracks.length + (state.hasMore ? 1 : 0),
         itemBuilder: (_, i) {

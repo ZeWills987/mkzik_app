@@ -5,7 +5,7 @@ import '../services/download_service.dart';
 /// Étapes d'un import externe (alignées sur les statuts du service Python).
 /// `streaming` est à part : il décrit le chargement d'un flux temps réel
 /// (mode `EXTERNAL_STREAM`), pas un import S3.
-enum ImportStatus { pending, downloading, extracting, validating, uploading, saving, streaming, completed, error }
+enum ImportStatus { pending, queued, downloading, extracting, validating, uploading, saving, streaming, completed, error }
 
 /// Un import en cours (ou récemment terminé) — affiché dans la bannière.
 class ImportJob {
@@ -28,6 +28,7 @@ class ImportJob {
   /// Libellé lisible de l'étape courante.
   String get label => switch (status) {
         ImportStatus.pending => 'En attente…',
+        ImportStatus.queued => 'En file d\'attente…',
         ImportStatus.downloading => 'Téléchargement…',
         ImportStatus.extracting => 'Extraction…',
         ImportStatus.validating => 'Validation…',
@@ -40,6 +41,7 @@ class ImportJob {
 }
 
 ImportStatus _statusFrom(String s) => switch (s) {
+      'queued' => ImportStatus.queued,
       'extracting' => ImportStatus.extracting,
       'validating' => ImportStatus.validating,
       'uploading' => ImportStatus.uploading,

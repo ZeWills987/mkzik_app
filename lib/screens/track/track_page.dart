@@ -11,7 +11,6 @@ import '../../providers/notice_provider.dart';
 import '../../providers/sources_provider.dart';
 import '../../services/track_service.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/pex_badge.dart';
 import '../../widgets/track_cover.dart';
 import '../../widgets/notice_banner.dart';
 import '../../widgets/mini_player.dart';
@@ -152,12 +151,6 @@ class _TrackPageState extends ConsumerState<TrackPage> {
                         style: TextStyle(color: accentLight, fontSize: 15, fontWeight: FontWeight.w600)),
                   ),
 
-                  // Badge Mini-Pex (remix / slowed / mashup…)
-                  if (track.pexTag != null) ...[
-                    const SizedBox(height: 12),
-                    PexBadge(tag: track.pexTag!),
-                  ],
-
                   const SizedBox(height: 14),
 
                   // Badges plateformes
@@ -237,9 +230,11 @@ class _TrackPageState extends ConsumerState<TrackPage> {
                     ],
                   ),
 
-                  // Section "Sources" (lazy) : uniquement si le track est un dérivé.
-                  if (track.pexSubtype != null && track.apiId != null)
-                    _SourcesSection(trackId: track.apiId!),
+                  // Section "Sources" (Mini-Pex) désactivée : la classification
+                  // backend n'est pas fiable pour le moment. À réactiver quand
+                  // la feature sera refaite :
+                  // if (track.pexSubtype != null && track.apiId != null)
+                  //   _SourcesSection(trackId: track.apiId!),
 
                   const SizedBox(height: 32),
                 ],
@@ -253,6 +248,9 @@ class _TrackPageState extends ConsumerState<TrackPage> {
 }
 
 // ── Section "Sources" d'un dérivé (originaux qui le composent) ────────────────
+// Désactivée tant que la classification Mini-Pex backend n'est pas fiable
+// (cf. commentaire dans build) — gardée pour réactivation.
+// ignore: unused_element
 class _SourcesSection extends ConsumerWidget {
   final int trackId;
   const _SourcesSection({required this.trackId});

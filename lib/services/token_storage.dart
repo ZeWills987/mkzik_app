@@ -11,9 +11,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 class TokenStorage {
   static const _key = 'token';
 
-  // Chiffrement au repos : Keystore (Android) / Keychain (iOS).
+  // Chiffrement au repos : Keystore (Android, toujours actif depuis
+  // flutter_secure_storage v10 — le paramètre encryptedSharedPreferences est
+  // déprécié et ignoré) / Keychain (iOS).
   static const _secure = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
   );
 

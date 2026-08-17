@@ -1,7 +1,19 @@
 {
   "permissions": {
     "allow": [
-      "Bash(flutter pub *)"
+      "Bash(flutter pub *)",
+      "PowerShell(winget install --id Microsoft.VisualStudio.2022.Community --override \"--quiet --add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended\" --accept-source-agreements --accept-package-agreements 2>&1)",
+      "PowerShell($vswhere = \"${env:ProgramFiles\\(x86\\)}\\\\Microsoft Visual Studio\\\\Installer\\\\vswhere.exe\"; & $vswhere -all -prerelease -property installationPath 2>&1; Write-Output \"--- setup.exe ---\"; Test-Path \"${env:ProgramFiles\\(x86\\)}\\\\Microsoft Visual Studio\\\\Installer\\\\setup.exe\")",
+      "PowerShell($setup = \"${env:ProgramFiles\\(x86\\)}\\\\Microsoft Visual Studio\\\\Installer\\\\setup.exe\"; & $setup modify --installPath \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\" --add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --quiet --norestart --wait 2>&1 | Select-Object -Last 15; Write-Output \"EXITCODE: $LASTEXITCODE\")",
+      "PowerShell($setup = \"${env:ProgramFiles\\(x86\\)}\\\\Microsoft Visual Studio\\\\Installer\\\\setup.exe\"; $args = @\\(\"modify\",\"--installPath\",\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\",\"--add\",\"Microsoft.VisualStudio.Workload.NativeDesktop\",\"--includeRecommended\",\"--passive\",\"--norestart\"\\); $p = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru; Write-Output \"EXITCODE: $\\($p.ExitCode\\)\")",
+      "PowerShell($vswhere = \"${env:ProgramFiles\\(x86\\)}\\\\Microsoft Visual Studio\\\\Installer\\\\vswhere.exe\"; Write-Output \"=== Instances completes ===\"; & $vswhere -property installationName; Write-Output \"=== Avec VC.Tools ===\"; & $vswhere -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationName; Write-Output \"=== isComplete / state \\(all\\) ===\"; & $vswhere -all -prerelease -property isComplete; & $vswhere -all -prerelease -property state)",
+      "PowerShell($setup = \"${env:ProgramFiles\\(x86\\)}\\\\Microsoft Visual Studio\\\\Installer\\\\setup.exe\"; Start-Process -FilePath $setup; Write-Output \"VS Installer lance\")",
+      "PowerShell($exe = \"C:\\\\Users\\\\WilliamTchang\\\\Desktop\\\\perso\\\\mkzik\\\\mkzik_app\\\\build\\\\windows\\\\x64\\\\runner\\\\Debug\\\\mkzik_app.exe\"; try { Remove-Item $exe -Force -ErrorAction Stop; Write-Output \"DELETED OK - fichier libre\" } catch { Write-Output \"LOCKED: $\\($_.Exception.Message\\)\" }; Write-Output \"--- processes holding flutter/dart ---\"; Get-Process | Where-Object { $_.ProcessName -match \"flutter|dart\" } | Format-Table Id, ProcessName)",
+      "Bash(P=\"/c/Users/WilliamTchang/AppData/Local/Pub/Cache/hosted/pub.dev/webview_windows-0.4.0\"; grep -rn \"Future<void> initialize\\\\|Future<void> loadUrl\\\\|Stream<String> get url\\\\|class WebviewController\\\\|class Webview\\\\b\\\\|Future<void> dispose\\\\|get postMessage\\\\|onLoadStateChanged\\\\|Stream<LoadingState>\" \"$P/lib\" 2>/dev/null | head -25)",
+      "PowerShell(Get-Command flutter -ErrorAction SilentlyContinue)",
+      "Bash(grep -n \"t.\\\\$3\\\\|SearchTab.zik\\\\|SearchTab.external\" lib/screens/search/search_screen.dart)",
+      "Bash(python3 -c ' *)",
+      "PowerShell(& \"C:\\\\Users\\\\WilliamTchang\\\\flutter\\\\bin\\\\flutter.bat\" run -d 2306EPN60G)"
     ]
   }
 }

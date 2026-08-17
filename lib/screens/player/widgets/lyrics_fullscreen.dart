@@ -1,8 +1,11 @@
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../models/track.dart';
+import '../../../models/track_visuals.dart';
+import '../../../providers/player_provider.dart';
 import '../../../utils/media.dart';
 import '../../../widgets/track_cover.dart';
 import 'player_lyrics_view.dart';
@@ -15,32 +18,21 @@ const double _kWideBreakpoint = 800;
 /// - mobile  : les lyrics occupent tout l'écran, fond flouté, titre discret.
 /// - desktop : pochette + infos à gauche, paroles à droite (style Spotify).
 /// La ligne active suit la lecture en temps réel ; tap sur une ligne → seek.
-class LyricsFullscreen extends StatelessWidget {
-  final Track track;
-  final Color accent;
-  final Color accentLight;
-
-  const LyricsFullscreen({
-    super.key,
-    required this.track,
-    required this.accent,
-    required this.accentLight,
-  });
+///
+/// ⚠️ Suit le titre EN COURS DE LECTURE (`playerProvider.currentTrack`), pas
+/// le titre depuis lequel l'écran a été ouvert : sinon, à l'auto-avance ou au
+/// skip, l'écran continuerait d'afficher les paroles de l'ancien titre.
+class LyricsFullscreen extends ConsumerWidget {
+  const LyricsFullscreen({super.key});
 
   /// Ouvre l'écran en fondu par-dessus le player.
-  static Future<void> open(
-    BuildContext context, {
-    required Track track,
-    required Color accent,
-    required Color accentLight,
-  }) {
+  static Future<void> open(BuildContext context) {
     return Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
         barrierColor: Colors.black87,
         transitionDuration: const Duration(milliseconds: 280),
-        pageBuilder: (_, _, _) =>
-            LyricsFullscreen(track: track, accent: accent, accentLight: accentLight),
+        pageBuilder: (_, _, _) => const LyricsFullscreen(),
         transitionsBuilder: (_, anim, _, child) =>
             FadeTransition(opacity: anim, child: child),
       ),
@@ -48,7 +40,20 @@ class LyricsFullscreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final track = ref.watch(playerProvider.select((s) => s.currentTrack));
+
+    // Lecture arrêtée pendant que l'écran est ouvert (file vidée, déconnexion…)
+    // → on se referme au lieu d'afficher un écran vide/périmé.
+    if (track == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (Navigator.of(context).canPop()) Navigator.of(context).maybePop();
+      });
+      return const SizedBox.shrink();
+    }
+
+    final accent = track.accent;
+    final accentLight = Color.lerp(accent, Colors.white, 0.18) ?? accent;
     final coverUrl = mediaUrl(track.coverUrl);
 
     return CallbackShortcuts(
@@ -96,7 +101,9 @@ class LyricsFullscreen extends StatelessWidget {
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final wide = constraints.maxWidth >= _kWideBreakpoint;
-                    return wide ? _buildWide(context) : _buildNarrow(context);
+                    return wide
+                        ? _buildWide(context, track, accent, accentLight)
+                        : _buildNarrow(context, track, accent, accentLight);
                   },
                 ),
               ),
@@ -119,7 +126,7 @@ class LyricsFullscreen extends StatelessWidget {
   }
 
   // ── Desktop : pochette + infos à gauche, paroles à droite (Spotify) ──────────
-  Widget _buildWide(BuildContext context) {
+  static Widget _buildWide(BuildContext context, Track track, Color accent, Color accentLight) {
     final coverSize = (MediaQuery.of(context).size.width * 0.24).clamp(220.0, 380.0);
     return Row(
       children: [
@@ -177,7 +184,7 @@ class LyricsFullscreen extends StatelessWidget {
   }
 
   // ── Mobile : paroles plein écran mono-colonne ────────────────────────────────
-  Widget _buildNarrow(BuildContext context) {
+  static Widget _buildNarrow(BuildContext context, Track track, Color accent, Color accentLight) {
     return Column(
       children: [
         // En-tête : titre/artiste discrets (le bouton réduire est dans le Stack)
