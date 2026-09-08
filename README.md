@@ -1,8 +1,6 @@
 # Mkzik
 
-Application de streaming musical avec une identité visuelle polynésienne
-(motifs Patutiki marquisiens). Client Flutter pour l'API Mkzik (backend Symfony +
-service de recherche Python).
+Application de streaming musical . Client Flutter.
 
 **Plateformes :** Android · iOS · **Windows (desktop)**
 
