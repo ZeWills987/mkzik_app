@@ -59,6 +59,7 @@ flutter pub get
 flutter run
 ```
 
+
 ## Icône d'application
 
 Place une icône `assets/icon/icon.png` (PNG carré 1024×1024, sans transparence)
@@ -88,3 +89,5 @@ tout builder), ou via « Run workflow » manuel :
   `windows-latest`. Décompresser et lancer `mkzik_app.exe`.
 
 Le `.env` de production est injecté en CI depuis le secret `MOBILE_ENV_FILE`.
+
+Build
