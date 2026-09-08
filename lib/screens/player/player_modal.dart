@@ -436,6 +436,7 @@ class _WaveformAndTime extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final position = ref.watch(playerProvider.select((s) => s.position));
     final duration = ref.watch(playerProvider.select((s) => s.duration));
+    final bufferedProgress = ref.watch(playerProvider.select((s) => s.bufferedProgress));
     final notifier = ref.read(playerProvider.notifier);
     final progress = duration.inMilliseconds == 0
         ? 0.0
@@ -445,6 +446,7 @@ class _WaveformAndTime extends ConsumerWidget {
       children: [
         PlayerWaveform(
           progress: progress,
+          bufferedProgress: bufferedProgress,
           duration: duration,
           accent: accentLight,
           seed: track.id.hashCode,

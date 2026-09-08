@@ -18,9 +18,30 @@ String mediaUrl(String raw) {
   if (local.hasMatch(url)) {
     // Réécrit l'hôte local (stocké en dev) vers la vraie base API
     url = url.replaceFirst(local, ApiConfig.baseUrl);
+  }
+  // Cas pathologique : URL absolue mais dont le chemin CONTIENT une autre URL
+  // absolue, ex: "https://api.william-tchang.fr/https://lh3.googleusercontent.com/..."
+  // → on extrait la seconde URL.
+  if (url.startsWith('http')) {
+    final secondHttp = RegExp(r'https?://').allMatches(url);
+    if (secondHttp.length >= 2) {
+      url = url.substring(secondHttp.elementAt(1).start);
+    }
+  }
+  if (url.startsWith('//')) {
+    // Protocole-relative → force https
+    url = 'https:$url';
   } else if (!url.startsWith('http')) {
-    // Chemin relatif → préfixe base API
-    url = '${ApiConfig.baseUrl}${url.startsWith('/') ? url.substring(1) : url}';
+    // Chemin relatif → préfixe base API.
+    // Cas pathologique : chemin commence par "/" mais contient "http" plus loin
+    // (ex: "/https://lh3.googleusercontent.com/...") → extraire l'URL embarquée.
+    final embedded = RegExp(r'https?://');
+    final m = embedded.firstMatch(url);
+    if (m != null && m.start > 0) {
+      url = url.substring(m.start);
+    } else {
+      url = '${ApiConfig.baseUrl}${url.startsWith('/') ? url.substring(1) : url}';
+    }
   }
 
   final uri = Uri.tryParse(url);

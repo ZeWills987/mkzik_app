@@ -61,6 +61,7 @@ class NotificationsNotifier extends StateNotifier<NotificationsState> {
   }
 
   Future<void> refresh() async {
+    if (!(ApiConfig.token?.isNotEmpty ?? false)) return;
     state = state.copyWith(initialLoading: state.items.isEmpty, error: false);
     final page = await NotificationService.list(limit: _kPageSize, offset: 0);
     if (!mounted) return;

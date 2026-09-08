@@ -99,5 +99,87 @@ class AuthService {
     return _tokenOrThrow(res, fallbackError: 'Connexion Google échouée');
   }
 
+  /// `GET /api/auth/google/connect-url[?callback=http://localhost:PORT/callback]`
+  /// → URL `accounts.google.com/…`
+  /// Sur Windows le `callbackUrl` local remplace le redirect_uri Symfony.
+  static Future<String?> fetchGoogleConnectUrl({String? callbackUrl}) async {
+    final base = _api('api/auth/google/connect-url');
+    final uri = callbackUrl != null
+        ? base.replace(queryParameters: {'callback': callbackUrl})
+        : base;
+    final res = await ApiClient.getUri(uri, auth: false);
+    final data = res.orElse(null);
+    if (data is Map) return data['url']?.toString();
+    return null;
+  }
+
+  /// `POST /api/auth/google/exchange-code {code, redirect_uri}` → `{token}`
+  /// Échange le code OAuth reçu par le serveur local contre un JWT Mkzik.
+  static Future<String?> exchangeGoogleCode({
+    required String code,
+    required String redirectUri,
+  }) async {
+    final res = await ApiClient.postUri(
+      _api('api/auth/google/exchange-code'),
+      body: {'code': code, 'redirect_uri': redirectUri},
+      auth: false,
+    );
+    final data = res.orElse(null);
+    if (data is Map) return data['token']?.toString();
+    return null;
+  }
+
+  /// POST /api/password/forgot — envoie le lien de réinitialisation par mail.
+  /// L'API renvoie toujours 200 (anti-énumération) ; seul le 400 (email invalide)
+  /// lève une exception.
+  static Future<void> forgotPassword(String email) async {
+    final res = await ApiClient.postUri(
+      _api('api/password/forgot'),
+      body: {'email': email},
+      auth: false,
+    );
+    if (res case Err(:final message)) {
+      throw AuthException(message.isNotEmpty ? message : "Erreur lors de l'envoi");
+    }
+  }
+
+  /// POST /api/password/reset — réinitialise le mot de passe via le token reçu par mail.
+  static Future<void> resetPassword(String token, String newPassword) async {
+    final res = await ApiClient.postUri(
+      _api('api/password/reset'),
+      body: {'token': token, 'password': newPassword},
+      auth: false,
+    );
+    if (res case Err(:final message)) {
+      throw AuthException(message.isNotEmpty ? message : 'Réinitialisation impossible');
+    }
+  }
+
+  /// PUT /api/update — met à jour les champs fournis (username, email, password).
+  /// Les champs absents ne sont pas modifiés.
+  static Future<void> updateAccount({String? username, String? email, String? password}) async {
+    final body = <String, dynamic>{
+      if (username != null) 'username': username,
+      if (email != null) 'email': email,
+      if (password != null) 'password': password,
+    };
+    final res = await ApiClient.putUri(_api('api/update'), body: body);
+    if (res case Err(:final message)) {
+      throw AuthException(message.isNotEmpty ? message : 'Mise à jour impossible');
+    }
+  }
+
+  /// DELETE /api/delete_account — supprime le compte définitivement.
+  /// Requiert le mot de passe actuel et sa confirmation.
+  static Future<void> deleteAccount(String password, String passwordConfirmation) async {
+    final res = await ApiClient.deleteUri(
+      _api('api/delete_account'),
+      body: {'password': password, 'passwordConfirmation': passwordConfirmation},
+    );
+    if (res case Err(:final message)) {
+      throw AuthException(message.isNotEmpty ? message : 'Suppression impossible');
+    }
+  }
+
   static Uri _api(String path) => Uri.parse('${ApiConfig.baseUrl}$path');
 }

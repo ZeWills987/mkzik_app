@@ -50,5 +50,25 @@ void main() {
       const u = 'https://img.distante.com/photo.png';
       expect(mediaUrl(u), u);
     });
+
+    test('URL double-préfixée (base API + URL absolue dans le chemin) → URL extraite', () {
+      // Cas réel : avatar Google stocké avec le préfixe Symfony
+      expect(
+        mediaUrl('https://cdn.mkzik.test/https://lh3.googleusercontent.com/a/photo=s96-c'),
+        'https://lh3.googleusercontent.com/a/photo=s96-c',
+      );
+      // Même cas avec http dans le chemin
+      expect(
+        mediaUrl('https://cdn.mkzik.test/http://lh3.googleusercontent.com/photo.jpg'),
+        'http://lh3.googleusercontent.com/photo.jpg',
+      );
+    });
+
+    test('chemin relatif commençant par / + URL embarquée → URL extraite', () {
+      expect(
+        mediaUrl('/https://lh3.googleusercontent.com/a/photo=s96-c'),
+        'https://lh3.googleusercontent.com/a/photo=s96-c',
+      );
+    });
   });
 }

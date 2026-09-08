@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/api_config.dart';
 import '../models/track.dart';
 import '../services/track_service.dart';
+import '../services/suggestion_service.dart';
 
 /// Signature d'un chargeur de page de tracks (news, historique, …).
 typedef TrackPageFetcher = Future<List<Track>> Function({required int limit, required int offset});
@@ -103,5 +104,38 @@ final historyPlayPagedProvider =
     StateNotifierProvider.autoDispose<PagedTracksNotifier, PagedTracksState>((ref) {
   return PagedTracksNotifier(
     ({required int limit, required int offset}) => TrackService.getHistoryPlay(limit: limit, offset: offset),
+  );
+});
+
+/// "Suggestions YouTube" paginées — une seule page (Python ne supporte pas l'offset).
+final youtubeSuggestionsPagedProvider =
+    StateNotifierProvider.autoDispose<PagedTracksNotifier, PagedTracksState>((ref) {
+  bool fetched = false;
+  return PagedTracksNotifier(
+    ({required int limit, required int offset}) async {
+      if (fetched || offset > 0) return [];
+      fetched = true;
+      final hasJwt = ApiConfig.token?.isNotEmpty ?? false;
+      if (hasJwt) {
+        final personal = await SuggestionService.youtubePersonal(limit: 30);
+        if (personal.isNotEmpty) return personal;
+      }
+      return SuggestionService.youtubeHome(limit: 30);
+    },
+    pageSize: 30,
+  );
+});
+
+/// "Suggestions SoundCloud" paginées — une seule page.
+final soundcloudSuggestionsPagedProvider =
+    StateNotifierProvider.autoDispose<PagedTracksNotifier, PagedTracksState>((ref) {
+  bool fetched = false;
+  return PagedTracksNotifier(
+    ({required int limit, required int offset}) async {
+      if (fetched || offset > 0) return [];
+      fetched = true;
+      return SuggestionService.soundcloudTop(limit: 30);
+    },
+    pageSize: 30,
   );
 });

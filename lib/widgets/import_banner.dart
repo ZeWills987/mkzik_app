@@ -11,14 +11,28 @@ class ImportBanner extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final jobs = ref.watch(importProvider);
-    if (jobs.isEmpty) return const SizedBox.shrink();
+    // Les jobs `streaming` sont silencieux pendant la résolution du flux —
+    // on n'affiche que les imports réels et les erreurs de stream.
+    final visible = jobs.where((j) => j.status != ImportStatus.streaming).toList();
+    if (visible.isEmpty) return const SizedBox.shrink();
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (final job in jobs)
-          _ImportRow(job: job, onDismiss: () => ref.read(importProvider.notifier).dismiss(job.id)),
-      ],
+    // Une seule notification à la fois : erreur > en cours > terminé,
+    // parmi les ex-æquo le plus récent (last dans la liste).
+    final job = visible.lastWhere(
+      (j) => j.status == ImportStatus.error,
+      orElse: () => visible.lastWhere(
+        (j) => !j.isDone,
+        orElse: () => visible.last,
+      ),
+    );
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      child: _ImportRow(
+        key: ValueKey(job.id),
+        job: job,
+        onDismiss: () => ref.read(importProvider.notifier).dismiss(job.id),
+      ),
     );
   }
 }
@@ -26,7 +40,7 @@ class ImportBanner extends ConsumerWidget {
 class _ImportRow extends StatelessWidget {
   final ImportJob job;
   final VoidCallback onDismiss;
-  const _ImportRow({required this.job, required this.onDismiss});
+  const _ImportRow({super.key, required this.job, required this.onDismiss});
 
   @override
   Widget build(BuildContext context) {

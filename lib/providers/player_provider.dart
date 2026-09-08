@@ -10,7 +10,6 @@ import '../config/api_config.dart';
 import '../models/track.dart';
 import '../services/track_service.dart';
 import '../services/radio_service.dart';
-import '../services/stream_service.dart';
 import '../utils/media.dart';
 import 'import_provider.dart';
 import 'favourites_provider.dart';
@@ -33,6 +32,7 @@ class PlayerState {
   final int currentIndex;
   final Duration position;
   final Duration duration;
+  final double bufferedProgress;
 
   const PlayerState({
     this.currentTrack,
@@ -44,6 +44,7 @@ class PlayerState {
     this.currentIndex = 0,
     this.position = Duration.zero,
     this.duration = Duration.zero,
+    this.bufferedProgress = 0.0,
   });
 
   PlayerState copyWith({
@@ -56,6 +57,7 @@ class PlayerState {
     int? currentIndex,
     Duration? position,
     Duration? duration,
+    double? bufferedProgress,
   }) {
     return PlayerState(
       currentTrack: currentTrack ?? this.currentTrack,
@@ -67,6 +69,7 @@ class PlayerState {
       currentIndex: currentIndex ?? this.currentIndex,
       position: position ?? this.position,
       duration: duration ?? this.duration,
+      bufferedProgress: bufferedProgress ?? this.bufferedProgress,
     );
   }
 
@@ -139,6 +142,18 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       if (dur != null) state = state.copyWith(duration: dur);
     }, onError: (Object e) => mkLog('Mkzik ▶ durationStream erreur : $e'));
 
+    // Suivi du buffering — WinRT ne supporte pas BufferingProgress (retourne
+    // toujours 1.0 avec une erreur loguée). On désactive le listener sur Windows.
+    if (!Platform.isWindows) {
+      _audio.bufferedPositionStream.listen((buffered) {
+        final dur = state.duration.inMilliseconds;
+        if (dur <= 0) return;
+        state = state.copyWith(
+          bufferedProgress: (buffered.inMilliseconds / dur).clamp(0.0, 1.0),
+        );
+      }, onError: (_) {});
+    }
+
     // Changement d'index (auto-avance, prev/next notif, fin de titre) → resync
     // de l'état Dart sur le titre réellement joué par le moteur natif.
     _audio.currentIndexStream.listen(_onCurrentIndexChanged,
@@ -161,7 +176,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         _ref.read(noticeProvider.notifier).show(unavailable
             ? '« ${t.title} » indisponible — titre suivant'
             : 'Erreur réseau sur « ${t.title} » — titre suivant');
-        unawaited(next());
+        // Microtask pour sortir du dispatch d'erreur rxdart avant d'appeler seek :
+        // sinon seekToNext() tente d'émettre sur le stream qui est encore "firing"
+        // → Bad state + boucle infinie.
+        unawaited(Future.microtask(next));
       } else {
         _ref
             .read(noticeProvider.notifier)
@@ -178,9 +196,13 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// réellement morte (supprimée, privée, géo-bloquée) et 502 pour un souci
   /// transitoire. just_audio enrobe l'erreur HTTP dans son message → on matche
   /// le code/libellé dans le texte (les plateformes formatent différemment).
+  /// `sourceNotSupportedError` = format non supporté par WinRT → traité comme
+  /// indisponible (pas de retry réseau, ça ne changera rien).
   static bool _isTrackUnavailable(Object e) {
     final s = '$e';
-    return s.contains('404') || s.contains('Titre indisponible');
+    return s.contains('404') ||
+        s.contains('Titre indisponible') ||
+        s.contains('sourceNotSupported');
   }
 
   // Configure la session audio (catégorie musique) — requis pour une lecture
@@ -291,8 +313,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (!sameTrack) {
       unawaited(_finishPlay());
       unawaited(_beginPlay(t));
-      // Pré-chauffe les prochains flux externes (cache hit au démarrage suivant).
-      unawaited(_warmupNext());
     }
     // Autoplay radio : quand le titre courant est le DERNIER de la file, on
     // précharge des suggestions et on les ajoute pour enchaîner sans coupure.
@@ -423,7 +443,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         // "Chargement du flux…" reste affichée pour toujours.
         await _audio
             .setAudioSource(_playlist!, initialIndex: 0, initialPosition: Duration.zero)
-            .timeout(Duration(seconds: track.needsStream ? 25 : 15));
+            // WinRT (Windows) initialise les streams S3/HTTPS plus lentement
+            // qu'ExoPlayer → timeout doublé pour éviter les faux TimeoutException.
+            .timeout(Duration(seconds: Platform.isWindows
+                ? (track.needsStream ? 50 : 60)
+                : (track.needsStream ? 25 : 15)));
         if (token != _playToken) {
           closeStreamJob();
           return;
@@ -437,8 +461,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         // Démarre le tracking d'écoute du titre courant (l'event d'index initial
         // est "same track" → on le démarre explicitement ici).
         unawaited(_beginPlay(current));
-        // Pré-chauffe les prochains flux externes pendant que l'audio charge.
-        unawaited(_warmupNext());
       } catch (e) {
         mkLog('Mkzik ▶ erreur lecture "${track.title}" (tentative $attempt/2) : $e');
         if (token != _playToken) {
@@ -537,29 +559,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
-  Timer? _warmupTimer;
-  final _warmedUrls = <String>{}; // pageUrls déjà préparées (anti re-prepare)
-
-  /// Pré-chauffe les 2 prochaines tracks externes de la file via `/stream/prepare`.
-  /// Python lance yt-dlp en avance de phase → cache hit (~0 ms) au démarrage réel.
-  /// Débouncé (2 s) et dédupliqué : zapper rapidement dans la file ne déclenche
-  /// plus une rafale de /stream/prepare, et une URL déjà préparée ne l'est pas deux fois.
-  Future<void> _warmupNext() async {
-    _warmupTimer?.cancel();
-    _warmupTimer = Timer(const Duration(seconds: 2), () {
-      final q = state.queue;
-      final idx = state.currentIndex;
-      final urls = q
-          .skip(idx + 1)
-          .take(2)
-          .where((t) => t.needsStream && t.pageUrl.isNotEmpty)
-          .map((t) => t.pageUrl)
-          .where(_warmedUrls.add) // add() = false si déjà présent → filtré
-          .toList();
-      if (_warmedUrls.length > 50) _warmedUrls.clear(); // borne mémoire simple
-      if (urls.isNotEmpty) unawaited(StreamService.prepare(urls));
-    });
-  }
 
   /// Rend un track réellement jouable :
   /// • `isSymfonyPlayable` (interne OU externe `in_mkzik`) → URL signée Symfony.
@@ -585,9 +584,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// Résolution légère pour les autres titres de la file (préchargement).
   /// Même logique que [_resolvePlayable] : Symfony pour `isSymfonyPlayable`,
   /// flux Python pour `needsStream`. Renvoie null si injouable.
+  /// Sur Windows, les flux temps réel (needsStream) ne sont pas supportés par
+  /// WinRT (sourceNotSupportedError) → on les exclut de la file silencieusement.
   Future<Track?> _resolveForQueue(Track t) async {
     if (t.hasPlayableUrl) return t;
     if (t.needsStream) {
+      if (Platform.isWindows) return null;
       if (t.pageUrl.isNotEmpty) return t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
       return null;
     }

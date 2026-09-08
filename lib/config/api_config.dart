@@ -34,7 +34,7 @@ class ApiConfig {
   /// `GET {pythonUrl}stream?url=<page>` → flux audio binaire (Range géré par just_audio).
   /// Host = [pythonUrl] (microservice yt-dlp), comme `/download` et `/search/stream`.
   static String streamUrl(String pageUrl) =>
-      '${pythonUrl}stream?url=${Uri.encodeQueryComponent(pageUrl)}';
+      '${pythonUrl}stream/?url=${Uri.encodeQueryComponent(pageUrl)}';
 
   // Garantit un slash final (les routes sont construites en "${baseUrl}api/...")
   static String _normalize(String url) => url.endsWith('/') ? url : '$url/';

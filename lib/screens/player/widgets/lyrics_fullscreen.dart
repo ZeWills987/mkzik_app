@@ -176,6 +176,7 @@ class LyricsFullscreen extends ConsumerWidget {
           child: Padding(
             padding: const EdgeInsets.only(right: 24),
             child: LyricsView(
+                key: ValueKey(track.id),
                 track: track, accent: accent, accentLight: accentLight, fontScale: 1.6),
           ),
         ),
@@ -212,7 +213,7 @@ class LyricsFullscreen extends ConsumerWidget {
           ),
         ),
         Expanded(
-          child: LyricsView(track: track, accent: accent, accentLight: accentLight),
+          child: LyricsView(key: ValueKey(track.id), track: track, accent: accent, accentLight: accentLight),
         ),
         const SizedBox(height: 16),
       ],

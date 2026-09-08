@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../providers/notifications_provider.dart';
 import '../../widgets/mini_player.dart' show miniPlayerListPadding;
 import '../../widgets/tappable.dart';
@@ -7,16 +6,14 @@ import '../notifications/notifications_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/track.dart';
 import '../../models/track_visuals.dart';
-import '../../models/search_user.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/paginated_tracks_provider.dart';
 import '../../widgets/track_card.dart';
 import '../../widgets/track_cover.dart';
 import '../../theme/app_theme.dart';
-import '../../utils/media.dart';
 import '../track_list/track_list_screen.dart';
-import '../profile/profile_screen.dart';
+import '../../widgets/empty_state.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -25,22 +22,13 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final newsAsync = ref.watch(newsFeedProvider);
     final historyAsync = ref.watch(historyPlayProvider);
-    final youtubeAsync = ref.watch(youtubeSuggestionsProvider);
-    final soundcloudAsync = ref.watch(soundcloudSuggestionsProvider);
-    final trendingAsync = ref.watch(trendingUsersProvider);
 
     // Données affichées (le repli démo éventuel est géré dans les providers)
     final tracks = newsAsync.maybeWhen(data: (d) => d, orElse: () => const <Track>[]);
     final historyTracks = historyAsync.maybeWhen(data: (d) => d, orElse: () => const <Track>[]);
-    final youtubeTracks = youtubeAsync.maybeWhen(data: (d) => d, orElse: () => const <Track>[]);
-    final soundcloudTracks = soundcloudAsync.maybeWhen(data: (d) => d, orElse: () => const <Track>[]);
-    final artists = trendingAsync.maybeWhen(data: (d) => d, orElse: () => const <SearchUser>[]);
     final Track? featured = tracks.isNotEmpty ? tracks.first : null;
     final isLoadingNews = newsAsync.isLoading;
     final isLoadingHistory = historyAsync.isLoading;
-    final isLoadingYoutube = youtubeAsync.isLoading;
-    final isLoadingSoundcloud = soundcloudAsync.isLoading;
-    final isLoadingTrending = trendingAsync.isLoading;
 
     return SafeArea(
       child: RefreshIndicator(
@@ -49,15 +37,9 @@ class HomeScreen extends ConsumerWidget {
         onRefresh: () async {
           ref.invalidate(newsFeedProvider);
           ref.invalidate(historyPlayProvider);
-          ref.invalidate(youtubeSuggestionsProvider);
-          ref.invalidate(soundcloudSuggestionsProvider);
-          ref.invalidate(trendingUsersProvider);
           await Future.wait([
             ref.read(newsFeedProvider.future),
             ref.read(historyPlayProvider.future),
-            ref.read(youtubeSuggestionsProvider.future),
-            ref.read(soundcloudSuggestionsProvider.future),
-            ref.read(trendingUsersProvider.future),
           ]);
         },
         child: CustomScrollView(
@@ -86,51 +68,22 @@ class HomeScreen extends ConsumerWidget {
                 height: 272,
                 child: isLoadingNews
                     ? const _LoadingRow(height: 272)
-                    : ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: tracks.length,
-                        separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
-                        itemBuilder: (_, i) => TrackCard(track: tracks[i], queue: tracks, showPublishedAt: true),
-                      ),
+                    : tracks.isEmpty
+                        ? const EmptyState(
+                            icon: Icons.newspaper_rounded,
+                            title: 'Aucune nouveauté',
+                            subtitle: 'Les nouvelles sorties apparaîtront ici.',
+                            fullScreen: false,
+                          )
+                        : ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: tracks.length,
+                            separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
+                            itemBuilder: (_, i) => TrackCard(track: tracks[i], queue: tracks, showPublishedAt: true),
+                          ),
               ),
             ),
-            // Suggestions YouTube (section pure, masquée si vide).
-            if (isLoadingYoutube || youtubeTracks.isNotEmpty) ...[
-              SliverToBoxAdapter(child: _SectionHeader(title: 'Suggestions YouTube', onSeeAll: () {})),
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 250,
-                  child: isLoadingYoutube
-                      ? const _LoadingRow(height: 250)
-                      : ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: youtubeTracks.length,
-                          separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
-                          itemBuilder: (_, i) => TrackCard(track: youtubeTracks[i], queue: youtubeTracks),
-                        ),
-                ),
-              ),
-            ],
-            // Suggestions SoundCloud (section pure, masquée si vide).
-            if (isLoadingSoundcloud || soundcloudTracks.isNotEmpty) ...[
-              SliverToBoxAdapter(child: _SectionHeader(title: 'Suggestions SoundCloud', onSeeAll: () {})),
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 250,
-                  child: isLoadingSoundcloud
-                      ? const _LoadingRow(height: 250)
-                      : ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: soundcloudTracks.length,
-                          separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
-                          itemBuilder: (_, i) => TrackCard(track: soundcloudTracks[i], queue: soundcloudTracks),
-                        ),
-                ),
-              ),
-            ],
             SliverToBoxAdapter(
               child: _SectionHeader(
                 title: 'Historique',
@@ -146,28 +99,20 @@ class HomeScreen extends ConsumerWidget {
                 height: 250,
                 child: isLoadingHistory
                     ? const _LoadingRow(height: 250)
-                    : ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: historyTracks.length,
-                        separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
-                        itemBuilder: (_, i) => TrackCard(track: historyTracks[i], queue: historyTracks),
-                      ),
-              ),
-            ),
-            SliverToBoxAdapter(child: _SectionHeader(title: 'Artistes recommandés', onSeeAll: () {})),
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: 120,
-                child: isLoadingTrending
-                    ? const _LoadingRow(height: 120)
-                    : ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: artists.length,
-                        separatorBuilder: (ctx, idx) => const SizedBox(width: 16),
-                        itemBuilder: (_, i) => _ArtistAvatar(user: artists[i]),
-                      ),
+                    : historyTracks.isEmpty
+                        ? const EmptyState(
+                            icon: Icons.history_rounded,
+                            title: 'Aucun historique',
+                            subtitle: 'Lance ta première écoute pour la retrouver ici.',
+                            fullScreen: false,
+                          )
+                        : ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: historyTracks.length,
+                            separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
+                            itemBuilder: (_, i) => TrackCard(track: historyTracks[i], queue: historyTracks),
+                          ),
               ),
             ),
             // Espace de fin : + hauteur du player flottant s'il est affiché
@@ -467,8 +412,8 @@ class _FloatingAlbumCard extends StatelessWidget {
 
 class _SectionHeader extends StatelessWidget {
   final String title;
-  final VoidCallback onSeeAll;
-  const _SectionHeader({required this.title, required this.onSeeAll});
+  final VoidCallback? onSeeAll;
+  const _SectionHeader({required this.title, this.onSeeAll});
 
   @override
   Widget build(BuildContext context) {
@@ -478,81 +423,14 @@ class _SectionHeader extends StatelessWidget {
         children: [
           Text(title, style: const TextStyle(color: kTextPrimary, fontSize: 20, fontWeight: FontWeight.w800)),
           const Spacer(),
-          GestureDetector(
-            onTap: onSeeAll,
-            child: const Text('Voir tout', style: TextStyle(color: kAccent, fontSize: 13, fontWeight: FontWeight.w600)),
-          ),
+          if (onSeeAll != null)
+            GestureDetector(
+              onTap: onSeeAll,
+              child: const Text('Voir tout', style: TextStyle(color: kAccent, fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
         ],
       ),
     );
   }
 }
 
-// ── Avatar artiste : avatar réseau ou sphère colorée + initiale ──────────────
-
-class _ArtistAvatar extends StatelessWidget {
-  final SearchUser user;
-  const _ArtistAvatar({required this.user});
-
-  @override
-  Widget build(BuildContext context) {
-    // Dégradé stable dérivé du nom (identité visuelle quand pas d'avatar)
-    final colors = gradientForSeed(user.username.hashCode);
-    final initial = user.username.isNotEmpty ? user.username[0].toUpperCase() : '?';
-
-    return GestureDetector(
-      onTap: () => ProfileScreen.open(context, user.username),
-      child: SizedBox(
-        width: 76,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  center: const Alignment(-0.35, -0.45),
-                  radius: 0.85,
-                  colors: colors,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: colors[0].withValues(alpha: 0.45),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: mediaUrl(user.avatarUrl).isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: mediaUrl(user.avatarUrl),
-                      fit: BoxFit.cover,
-                      memCacheWidth: (72 * MediaQuery.devicePixelRatioOf(context)).round(),
-                      errorWidget: (context, u, error) => _initial(initial),
-                    )
-                  : _initial(initial),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              user.username,
-              style: const TextStyle(color: kTextPrimary, fontSize: 12, fontWeight: FontWeight.w500),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _initial(String initial) => Center(
-        child: Text(
-          initial,
-          style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w800),
-        ),
-      );
-}

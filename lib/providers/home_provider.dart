@@ -19,10 +19,15 @@ final historyPlayProvider = FutureProvider<List<Track>>((ref) async {
   return tracks;
 });
 
-/// "Suggestions YouTube" → top YouTube Music (charts), titres externes /stream.
-/// Section pure (pas de mélange de plateformes — chaque source a sa rangée).
+/// "Suggestions YouTube" → feed personnalisé si Google lié + token valide, générique sinon.
+/// On ne peut pas savoir si le token YTMusic est valide sans appeler Python →
+/// on tente personal (JWT si connecté), et on retombe sur home si vide (404/expiré).
 final youtubeSuggestionsProvider = FutureProvider<List<Track>>((ref) async {
-  return SuggestionService.youtubeTop(limit: 16);
+  final hasJwt = ApiConfig.token?.isNotEmpty ?? false;
+  if (!hasJwt) return SuggestionService.youtubeHome(limit: 16);
+  final personal = await SuggestionService.youtubePersonal(limit: 16);
+  if (personal.isNotEmpty) return personal;
+  return SuggestionService.youtubeHome(limit: 16);
 });
 
 /// "Suggestions SoundCloud" → top SoundCloud (charts), titres externes /stream.

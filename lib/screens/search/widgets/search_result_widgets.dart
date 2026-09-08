@@ -5,6 +5,7 @@ import '../../../models/search_user.dart';
 import '../../../providers/search_filter_provider.dart';
 import '../../../services/profile_service.dart';
 import '../../../theme/app_theme.dart';
+import '../../../widgets/empty_state.dart';
 import '../../../utils/media.dart';
 import '../../../widgets/track_actions.dart';
 import '../../../widgets/tappable.dart';
@@ -197,8 +198,10 @@ class EmptyResults extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Text('Aucun résultat', style: TextStyle(color: kTextSecondary, fontSize: 14)),
+    return const EmptyState(
+      icon: Icons.search_off_rounded,
+      title: 'Aucun résultat',
+      subtitle: 'Essaie un autre mot-clé ou change de plateforme.',
     );
   }
 }

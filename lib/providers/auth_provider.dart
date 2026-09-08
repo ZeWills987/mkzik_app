@@ -140,6 +140,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    // Fire-and-forget : on n'attend pas la réponse pour ne pas bloquer l'UX
+    // si le serveur est indisponible.
+    unawaited(Future(() async {
+      try {
+        await ApiClient.postUri(Uri.parse('${ApiConfig.baseUrl}api/logout'));
+      } catch (_) {}
+    }));
     await TokenStorage.clear();
     ApiConfig.token = null;
     state = const AuthState(status: AuthStatus.unauthenticated);

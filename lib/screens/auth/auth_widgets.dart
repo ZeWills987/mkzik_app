@@ -162,7 +162,7 @@ class AuthField extends StatelessWidget {
   final String label;
   final IconData icon;
   final bool obscure;
-  final TextInputType keyboardType;
+  final TextInputType? keyboardType;
   final TextInputAction textInputAction;
   final Widget? suffix;
   final int maxLines;
@@ -176,7 +176,7 @@ class AuthField extends StatelessWidget {
     required this.label,
     required this.icon,
     this.obscure = false,
-    this.keyboardType = TextInputType.text,
+    this.keyboardType,
     this.textInputAction = TextInputAction.next,
     this.suffix,
     this.maxLines = 1,
@@ -187,12 +187,14 @@ class AuthField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final resolvedLines = obscure ? 1 : maxLines;
+    final resolvedKeyboardType = keyboardType ?? (resolvedLines > 1 ? TextInputType.multiline : TextInputType.text);
     return TextField(
       controller: controller,
       obscureText: obscure,
-      keyboardType: keyboardType,
+      keyboardType: resolvedKeyboardType,
       textInputAction: textInputAction,
-      maxLines: obscure ? 1 : maxLines,
+      maxLines: resolvedLines,
       onSubmitted: onSubmitted,
       onTap: onTap,
       readOnly: readOnly,

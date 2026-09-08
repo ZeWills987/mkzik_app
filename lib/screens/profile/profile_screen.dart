@@ -8,12 +8,18 @@ import '../../providers/auth_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/notice_provider.dart';
+import '../../providers/albums_provider.dart';
+import '../../models/album.dart';
 import '../../services/profile_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/media.dart';
 import '../../widgets/track_actions.dart';
 import '../../widgets/notice_banner.dart';
 import '../../widgets/mini_player.dart';
+import '../settings/account_settings_screen.dart';
+import '../upload/upload_track_screen.dart';
+import '../upload/upload_album_screen.dart';
+import 'album_detail_screen.dart';
 import 'edit_profile_screen.dart';
 import 'youtube_screen.dart';
 
@@ -44,14 +50,13 @@ class ProfileScreen extends ConsumerWidget {
       );
     }
 
-    final pushed = username != null; // route poussée (vs onglet)
+    final pushed = username != null;
     final isOwn = resolved == authUsername;
     final async = ref.watch(profileProvider(resolved));
     final hasTrack = ref.watch(playerProvider.select((s) => s.currentTrack != null));
 
     return Scaffold(
       backgroundColor: kBg,
-      // En route poussée, l'AppShell est masqué → on remet bannières + mini-player
       bottomNavigationBar: pushed
           ? SafeArea(
               top: false,
@@ -81,15 +86,19 @@ class ProfileScreen extends ConsumerWidget {
                   isOwn: isOwn,
                   showBack: pushed,
                   onBack: () => Navigator.of(context).maybePop(),
-                  onLogout: isOwn && !pushed ? () => ref.read(authProvider.notifier).logout() : null,
                   onEdit: () => EditProfileScreen.open(context, data.profile, resolved),
+                  onMenuAction: isOwn && !pushed
+                      ? (action) => _handleMenu(context, ref, action,
+                            onEdit: () => EditProfileScreen.open(context, data.profile, resolved))
+                      : null,
                 ),
               ),
               SliverToBoxAdapter(child: _StatsCard(data: data)),
-              if (isOwn)
-                SliverToBoxAdapter(child: _YoutubeCard(context: context)),
               if (data.profile.description.isNotEmpty)
                 SliverToBoxAdapter(child: _Bio(text: data.profile.description)),
+              SliverToBoxAdapter(
+                child: _AlbumsSection(username: resolved),
+              ),
               SliverToBoxAdapter(child: _ZiksHeader(count: data.tracks.length)),
               SliverList(
                 delegate: SliverChildBuilderDelegate(
@@ -114,65 +123,45 @@ class ProfileScreen extends ConsumerWidget {
       ),
     );
   }
+
+  void _handleMenu(BuildContext context, WidgetRef ref, _MenuAction action,
+      {required VoidCallback onEdit}) {
+    switch (action) {
+      case _MenuAction.editProfile:
+        onEdit();
+      case _MenuAction.youtube:
+        YoutubeScreen.open(context);
+      case _MenuAction.uploadTrack:
+        UploadTrackScreen.open(context);
+      case _MenuAction.uploadAlbum:
+        UploadAlbumScreen.open(context);
+      case _MenuAction.settings:
+        AccountSettingsScreen.open(context);
+      case _MenuAction.logout:
+        ref.read(authProvider.notifier).logout();
+    }
+  }
 }
 
-// ── Carte YouTube Music ───────────────────────────────────────────────────────
+enum _MenuAction { editProfile, youtube, uploadTrack, uploadAlbum, settings, logout }
 
-class _YoutubeCard extends StatelessWidget {
-  final BuildContext context;
-  const _YoutubeCard({required this.context});
-
-  @override
-  Widget build(BuildContext ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-        child: InkWell(
-          onTap: () => YoutubeScreen.open(context),
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: kSurface,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.music_video_outlined, color: Color(0xFFFF0000), size: 24),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('YouTube Music', style: TextStyle(color: kTextPrimary, fontWeight: FontWeight.w600, fontSize: 14)),
-                      SizedBox(height: 2),
-                      Text('Importer playlists et likes', style: TextStyle(color: kTextSecondary, fontSize: 12)),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right, color: kTextSecondary),
-              ],
-            ),
-          ),
-        ),
-      );
-}
-
-// ── Hero : cover + avatar + nom + bouton ─────────────────────────────────────
+// ── Hero : cover + avatar + nom + boutons ─────────────────────────────────────
 
 class _Hero extends StatelessWidget {
   final Profile profile;
   final bool isOwn;
   final bool showBack;
   final VoidCallback onBack;
-  final VoidCallback? onLogout;
   final VoidCallback onEdit;
+  final void Function(_MenuAction)? onMenuAction;
 
   const _Hero({
     required this.profile,
     required this.isOwn,
     required this.showBack,
     required this.onBack,
-    required this.onLogout,
     required this.onEdit,
+    required this.onMenuAction,
   });
 
   @override
@@ -206,7 +195,6 @@ class _Hero extends StatelessWidget {
                           ),
                         ),
                       ),
-                    // Glow radial
                     DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: RadialGradient(
@@ -216,7 +204,6 @@ class _Hero extends StatelessWidget {
                         ),
                       ),
                     ),
-                    // Fondu vers le fond de l'app
                     DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
@@ -231,7 +218,7 @@ class _Hero extends StatelessWidget {
                 ),
               ),
 
-              // Retour (haut gauche) en route poussée
+              // Retour (haut gauche)
               if (showBack)
                 Positioned(
                   top: 0, left: 4,
@@ -240,33 +227,34 @@ class _Hero extends StatelessWidget {
                   ),
                 ),
 
-              // Déconnexion (haut droite) sur son propre profil (onglet)
-              if (onLogout != null)
+              // Menu avatar (haut droite) sur son propre profil
+              if (onMenuAction != null)
                 Positioned(
                   top: 0, right: 4,
                   child: SafeArea(
-                    child: _CircleIcon(icon: Icons.logout, onTap: onLogout!),
+                    child: _AvatarMenuButton(
+                      profile: profile,
+                      accent: accent,
+                      onAction: onMenuAction!,
+                    ),
                   ),
                 ),
 
               // Avatar centré, débordant
               Positioned(
-                bottom: 0,
-                left: 0, right: 0,
+                bottom: 0, left: 0, right: 0,
                 child: Center(child: _Avatar(profile: profile, accent: accent)),
               ),
             ],
           ),
         ),
         const SizedBox(height: 12),
-        // Nom + handle
         Text(profile.username,
             style: const TextStyle(color: kTextPrimary, fontSize: 22, fontWeight: FontWeight.w800)),
         const SizedBox(height: 2),
         Text('@${profile.username.toLowerCase()}',
             style: TextStyle(color: accent, fontSize: 13, fontWeight: FontWeight.w600)),
         const SizedBox(height: 14),
-        // Bouton : Modifier (soi) ou Suivre/Suivi (autre)
         if (isOwn)
           _OutlineButton(label: 'Modifier le profil', icon: Icons.edit_outlined, onTap: onEdit)
         else
@@ -277,7 +265,79 @@ class _Hero extends StatelessWidget {
   }
 }
 
-// Petit bouton rond semi-transparent (back / logout sur la cover)
+// ── Menu avatar (PopupMenu) ───────────────────────────────────────────────────
+
+class _AvatarMenuButton extends StatelessWidget {
+  final Profile profile;
+  final Color accent;
+  final void Function(_MenuAction) onAction;
+
+  const _AvatarMenuButton({required this.profile, required this.accent, required this.onAction});
+
+  @override
+  Widget build(BuildContext context) {
+    final avatar = mediaUrl(profile.avatarUrl);
+    final initial = profile.username.isNotEmpty ? profile.username[0].toUpperCase() : '?';
+
+    return PopupMenuButton<_MenuAction>(
+      onSelected: onAction,
+      color: kSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: kBorderSoft),
+      ),
+      offset: const Offset(0, 44),
+      itemBuilder: (_) => [
+        _menuItem(_MenuAction.editProfile, Icons.edit_outlined, 'Modifier le profil'),
+        _menuItem(_MenuAction.youtube, Icons.music_video_outlined, 'YouTube Music',
+            color: const Color(0xFFFF0000)),
+        const PopupMenuDivider(height: 8),
+        _menuItem(_MenuAction.uploadTrack, Icons.cloud_upload_outlined, 'Publier une zik',
+            color: kAccent),
+        _menuItem(_MenuAction.uploadAlbum, Icons.album_outlined, 'Publier un album',
+            color: kAccent),
+        const PopupMenuDivider(height: 8),
+        _menuItem(_MenuAction.settings, Icons.manage_accounts_outlined, 'Paramètres'),
+        _menuItem(_MenuAction.logout, Icons.logout, 'Déconnexion',
+            color: kErrorText),
+      ],
+      child: Container(
+        margin: const EdgeInsets.all(8),
+        width: 36, height: 36,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.black.withValues(alpha: 0.35),
+          border: Border.all(color: accent.withValues(alpha: 0.6), width: 1.5),
+        ),
+        child: ClipOval(
+          child: avatar.isNotEmpty
+              ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
+              : Center(
+                  child: Text(initial,
+                      style: const TextStyle(color: Colors.white, fontSize: 15,
+                          fontWeight: FontWeight.w700)),
+                ),
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<_MenuAction> _menuItem(_MenuAction action, IconData icon, String label,
+      {Color? color}) {
+    final c = color ?? kTextPrimary;
+    return PopupMenuItem(
+      value: action,
+      child: Row(children: [
+        Icon(icon, color: c, size: 18),
+        const SizedBox(width: 12),
+        Text(label, style: TextStyle(color: c, fontSize: 13.5, fontWeight: FontWeight.w500)),
+      ]),
+    );
+  }
+}
+
+// ── Petit bouton rond semi-transparent ───────────────────────────────────────
+
 class _CircleIcon extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
@@ -297,7 +357,8 @@ class _CircleIcon extends StatelessWidget {
   }
 }
 
-// Bouton Suivre/Suivi avec bascule optimiste + appel API
+// ── Bouton Suivre/Suivi ───────────────────────────────────────────────────────
+
 class _FollowButton extends ConsumerStatefulWidget {
   final String username;
   final bool initialFollowing;
@@ -309,9 +370,8 @@ class _FollowButton extends ConsumerStatefulWidget {
 
 class _FollowButtonState extends ConsumerState<_FollowButton> {
   late bool _following = widget.initialFollowing;
-  bool _busy = false; // évite les double-taps pendant l'appel
+  bool _busy = false;
 
-  // Resynchronise sur l'état réel quand le profil est rechargé (après succès).
   @override
   void didUpdateWidget(_FollowButton old) {
     super.didUpdateWidget(old);
@@ -322,20 +382,16 @@ class _FollowButtonState extends ConsumerState<_FollowButton> {
 
   Future<void> _toggle() async {
     if (_busy) return;
-    setState(() {
-      _busy = true;
-      _following = !_following;
-    });
+    setState(() { _busy = true; _following = !_following; });
     final ok = await ProfileService.toggleFollow(widget.username);
     if (!mounted) return;
     setState(() {
-      if (!ok) _following = !_following; // rollback si échec
+      if (!ok) _following = !_following;
       _busy = false;
     });
     final notifier = ref.read(noticeProvider.notifier);
     if (ok) {
       notifier.show(_following ? 'Abonné à @${widget.username}' : 'Désabonné');
-      // Rafraîchit le profil affiché (compteurs + état de suivi réels)
       ref.invalidate(profileProvider(widget.username));
     } else {
       notifier.show('Action impossible, réessaie');
@@ -357,14 +413,15 @@ class _FollowButtonState extends ConsumerState<_FollowButton> {
           _following ? 'Suivi' : 'Suivre',
           style: TextStyle(
             color: _following ? kAccent : Colors.white,
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
+            fontSize: 13, fontWeight: FontWeight.w700,
           ),
         ),
       ),
     );
   }
 }
+
+// ── Avatar ────────────────────────────────────────────────────────────────────
 
 class _Avatar extends StatelessWidget {
   final Profile profile;
@@ -374,7 +431,7 @@ class _Avatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final initial = profile.username.isNotEmpty ? profile.username[0].toUpperCase() : '?';
-    final avatar = mediaUrl(profile.avatarUrl); // nettoyée
+    final avatar = mediaUrl(profile.avatarUrl);
     return Container(
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
@@ -390,14 +447,15 @@ class _Avatar extends StatelessWidget {
           backgroundImage: avatar.isNotEmpty ? CachedNetworkImageProvider(avatar) : null,
           child: avatar.isNotEmpty
               ? null
-              : Text(initial, style: const TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.w800)),
+              : Text(initial, style: const TextStyle(color: Colors.white, fontSize: 40,
+                  fontWeight: FontWeight.w800)),
         ),
       ),
     );
   }
 }
 
-// ── Carte de stats ────────────────────────────────────────────────────────────
+// ── Stats ─────────────────────────────────────────────────────────────────────
 
 class _StatsCard extends StatelessWidget {
   final ProfileData data;
@@ -463,16 +521,14 @@ class _Bio extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 18, 24, 0),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: const TextStyle(color: kTextSecondary, fontSize: 13, height: 1.5),
-      ),
+      child: Text(text,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: kTextSecondary, fontSize: 13, height: 1.5)),
     );
   }
 }
 
-// ── En-tête section Ziks ───────────────────────────────────────────────────────
+// ── En-tête section Ziks ──────────────────────────────────────────────────────
 
 class _ZiksHeader extends StatelessWidget {
   final int count;
@@ -485,11 +541,13 @@ class _ZiksHeader extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          const Text('Ziks', style: TextStyle(color: kTextPrimary, fontSize: 20, fontWeight: FontWeight.w800)),
+          const Text('Ziks',
+              style: TextStyle(color: kTextPrimary, fontSize: 20, fontWeight: FontWeight.w800)),
           const SizedBox(width: 8),
           Padding(
             padding: const EdgeInsets.only(bottom: 2),
-            child: Text('$count', style: const TextStyle(color: kTextSecondary, fontSize: 14, fontWeight: FontWeight.w600)),
+            child: Text('$count',
+                style: const TextStyle(color: kTextSecondary, fontSize: 14, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -497,7 +555,98 @@ class _ZiksHeader extends StatelessWidget {
   }
 }
 
-// ── Bouton outline ──────────────────────────────────────────────────────────
+// ── Bouton outline ────────────────────────────────────────────────────────────
+
+// ── Albums section ──────────────────────────────────────────────────────────
+
+class _AlbumsSection extends ConsumerWidget {
+  final String username;
+  const _AlbumsSection({required this.username});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(albumsProvider(username));
+    return async.when(
+      loading: () => const SizedBox.shrink(),
+      error: (err, st) => const SizedBox.shrink(),
+      data: (albums) {
+        if (albums.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+              child: Row(
+                children: [
+                  const Text('Albums',
+                      style: TextStyle(color: kTextPrimary, fontSize: 17, fontWeight: FontWeight.w800)),
+                  const Spacer(),
+                  Text('${albums.length}',
+                      style: const TextStyle(color: kTextSecondary, fontSize: 13)),
+                ],
+              ),
+            ),
+            SizedBox(
+              height: 168,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: albums.length,
+                itemBuilder: (context, i) =>
+                    _AlbumCard(album: albums[i]),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AlbumCard extends StatelessWidget {
+  final Album album;
+  const _AlbumCard({required this.album});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => AlbumDetailScreen.open(context, album),
+      child: Container(
+        width: 130,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 130,
+                height: 130,
+                child: album.hasCover
+                    ? CachedNetworkImage(imageUrl: album.coverUrl, fit: BoxFit.cover)
+                    : Container(
+                        color: kSurface,
+                        child: const Icon(Icons.album, color: kTextSecondary, size: 48),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(album.title,
+                style: const TextStyle(color: kTextPrimary, fontSize: 12, fontWeight: FontWeight.w600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+            Text(album.countLabel,
+                style: const TextStyle(color: kTextSecondary, fontSize: 11),
+                maxLines: 1),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _OutlineButton extends StatelessWidget {
   final String label;
@@ -520,7 +669,8 @@ class _OutlineButton extends StatelessWidget {
           children: [
             Icon(icon, color: kAccent, size: 16),
             const SizedBox(width: 8),
-            Text(label, style: const TextStyle(color: kAccent, fontSize: 13, fontWeight: FontWeight.w700)),
+            Text(label,
+                style: const TextStyle(color: kAccent, fontSize: 13, fontWeight: FontWeight.w700)),
           ],
         ),
       ),

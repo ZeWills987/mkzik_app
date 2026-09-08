@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 /// sinon la progression de lecture.
 class PlayerWaveform extends StatefulWidget {
   final double progress;
+  final double bufferedProgress;
   final Duration duration;
   final Color accent;
   final int seed;
@@ -18,6 +19,7 @@ class PlayerWaveform extends StatefulWidget {
     required this.accent,
     required this.seed,
     required this.onSeek,
+    this.bufferedProgress = 0.0,
   });
 
   @override
@@ -59,8 +61,8 @@ class _PlayerWaveformState extends State<PlayerWaveform> {
             width: double.infinity,
             child: CustomPaint(
               painter: _WaveformPainter(
-                // Pendant le scrub on suit le doigt, sinon la lecture
                 progress: _dragRatio ?? widget.progress,
+                bufferedProgress: widget.bufferedProgress,
                 accent: widget.accent,
                 seed: widget.seed,
               ),
@@ -74,10 +76,16 @@ class _PlayerWaveformState extends State<PlayerWaveform> {
 
 class _WaveformPainter extends CustomPainter {
   final double progress;
+  final double bufferedProgress;
   final Color accent;
   final int seed;
 
-  _WaveformPainter({required this.progress, required this.accent, required this.seed});
+  _WaveformPainter({
+    required this.progress,
+    required this.accent,
+    required this.seed,
+    this.bufferedProgress = 0.0,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -87,13 +95,14 @@ class _WaveformPainter extends CustomPainter {
     final count = (size.width / (barW + gap)).floor();
     final mid = size.height / 2;
     final playedX = size.width * progress;
+    final bufferedX = size.width * bufferedProgress;
 
     final paintPlayed = Paint()..color = accent;
-    final paintUnplayed = Paint()..color = accent.withValues(alpha: 0.25);
+    final paintBuffered = Paint()..color = accent.withValues(alpha: 0.50);
+    final paintUnplayed = Paint()..color = accent.withValues(alpha: 0.22);
 
     for (var i = 0; i < count; i++) {
       final x = i * (barW + gap);
-      // Hauteur pseudo-aléatoire lissée façon onde
       final base = 0.3 + 0.7 * (0.5 + 0.5 * math.sin(i * 0.5 + seed % 7));
       final noise = rnd.nextDouble() * 0.5;
       final h = (size.height * 0.9) * ((base + noise) / 1.5).clamp(0.1, 1.0);
@@ -101,11 +110,21 @@ class _WaveformPainter extends CustomPainter {
         Rect.fromCenter(center: Offset(x + barW / 2, mid), width: barW, height: h),
         const Radius.circular(2),
       );
-      canvas.drawRRect(rect, x <= playedX ? paintPlayed : paintUnplayed);
+      final Paint paint;
+      if (x <= playedX) {
+        paint = paintPlayed;
+      } else if (x <= bufferedX) {
+        paint = paintBuffered;
+      } else {
+        paint = paintUnplayed;
+      }
+      canvas.drawRRect(rect, paint);
     }
   }
 
   @override
   bool shouldRepaint(_WaveformPainter old) =>
-      old.progress != progress || old.accent != accent;
+      old.progress != progress ||
+      old.bufferedProgress != bufferedProgress ||
+      old.accent != accent;
 }

@@ -213,17 +213,47 @@ class _MiniProgressBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final progress = ref.watch(playerProvider.select((s) => s.progress));
+    final buffered = ref.watch(playerProvider.select((s) => s.bufferedProgress));
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(kMiniPlayerRadius)),
       child: SizedBox(
         height: 2,
-        child: LinearProgressIndicator(
-          value: progress,
-          backgroundColor: kBorderMini.withValues(alpha: 0.5),
-          valueColor: const AlwaysStoppedAnimation<Color>(kAccent),
-          minHeight: 2,
+        child: CustomPaint(
+          painter: _MiniBufferPainter(progress: progress, buffered: buffered),
+          child: const SizedBox.expand(),
         ),
       ),
     );
   }
+}
+
+class _MiniBufferPainter extends CustomPainter {
+  final double progress;
+  final double buffered;
+  const _MiniBufferPainter({required this.progress, required this.buffered});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Fond
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = kBorderMini.withValues(alpha: 0.5),
+    );
+    // Zone bufferisée
+    if (buffered > progress) {
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, size.width * buffered, size.height),
+        Paint()..color = kAccent.withValues(alpha: 0.35),
+      );
+    }
+    // Zone jouée
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width * progress, size.height),
+      Paint()..color = kAccent,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_MiniBufferPainter old) =>
+      old.progress != progress || old.buffered != buffered;
 }

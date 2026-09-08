@@ -1,9 +1,14 @@
 import 'dart:io' show Platform;
 
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
 import '../models/yt_playlist.dart';
 import 'api_client.dart';
+
+/// Clé SharedPreferences : posée après une connexion OAuth v2 (disconnect+consent).
+/// Absente = compte connecté avant la migration → bandeau de reconnexion affiché.
+const _kOauthV2Key = 'yt_oauth_v2';
 
 /// Levée quand l'API YouTube retourne 403 + needs_reconnect: true.
 /// Le token YouTube a expiré → relancer [YoutubeService.connect].
@@ -39,7 +44,10 @@ class YoutubeService {
     if (!(Platform.isAndroid || Platform.isIOS)) {
       throw Exception('Connexion YouTube disponible uniquement sur mobile pour le moment.');
     }
-    await _googleSignIn.signOut(); // force la sélection de compte
+    // disconnect() révoque l'accès → Google redemande le consentement complet
+    // (prompt=consent implicite), ce qui émet un nouveau refresh_token avec
+    // tous les scopes — nécessaire pour migrer les anciens comptes youtube.readonly.
+    await _googleSignIn.disconnect().catchError((_) async => null);
     final account = await _googleSignIn.signIn();
     if (account == null) return false;
 
@@ -60,10 +68,36 @@ class YoutubeService {
 
     switch (res) {
       case Ok():
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_kOauthV2Key, true);
         return true;
       case Err(:final message):
         throw Exception(message);
     }
+  }
+
+  /// `true` si la connexion a été faite avec OAuth v2 (consent complet).
+  /// `false` = ancien compte → bandeau de reconnexion à afficher.
+  static Future<bool> isOauthV2() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kOauthV2Key) ?? false;
+  }
+
+  /// Pose le flag OAuth v2 après une reconnexion web réussie.
+  static Future<void> markOauthV2() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kOauthV2Key, true);
+  }
+
+  /// Appelle `GET /api/youtube/connect` (JWT requis) → URL d'autorisation Google
+  /// avec prompt=consent déjà inclus. À ouvrir dans un navigateur externe.
+  static Future<String?> fetchConnectUrl() async {
+    final res = await ApiClient.getUri(
+      Uri.parse('${ApiConfig.baseUrl}api/youtube/connect'),
+    );
+    final data = res.orElse(null);
+    if (data is Map) return data['url']?.toString();
+    return null;
   }
 
   /// GET /api/youtube/playlists → {playlists: [{id, title, item_count, thumbnail}]}

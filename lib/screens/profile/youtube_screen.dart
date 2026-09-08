@@ -1,6 +1,9 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../models/yt_playlist.dart';
 import '../../providers/youtube_provider.dart';
 import '../../services/api_client.dart';
@@ -18,8 +21,9 @@ class YoutubeScreen extends ConsumerStatefulWidget {
   ConsumerState<YoutubeScreen> createState() => _YoutubeScreenState();
 }
 
-class _YoutubeScreenState extends ConsumerState<YoutubeScreen> {
+class _YoutubeScreenState extends ConsumerState<YoutubeScreen> with WidgetsBindingObserver {
   bool _connectLoading = false;
+  bool _webReconnectPending = false; // true quand l'user est parti dans le browser OAuth
   bool _likesLoading = false;
   String? _likesResult;
   String? _likesError;
@@ -27,7 +31,77 @@ class _YoutubeScreenState extends ConsumerState<YoutubeScreen> {
   final Map<String, String> _playlistResult = {};
   final Map<String, String> _playlistError = {};
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Quand l'user revient dans l'app après le flow OAuth web → recheck connexion.
+    if (state == AppLifecycleState.resumed && _webReconnectPending) {
+      _webReconnectPending = false;
+      _onWebReconnectReturn();
+    }
+  }
+
+  Future<void> _onWebReconnectReturn() async {
+    ref.invalidate(ytConnectedProvider);
+    final connected = await ref.read(ytConnectedProvider.future).catchError((_) => false);
+    if (!mounted) return;
+    if (connected) {
+      await YoutubeService.markOauthV2();
+      if (!mounted) return;
+      ref.invalidate(ytOauthV2Provider);
+      ref.invalidate(ytPlaylistsProvider);
+    }
+  }
+
+
+  /// Reconnexion via le flow OAuth web Symfony (prompt=consent garanti).
+  /// Utilisé par le bandeau de migration — ouvre un Custom Tab, Symfony reçoit
+  /// le callback, l'app détecte le retour via AppLifecycleState.resumed.
+  Future<void> _webReconnect() async {
+    setState(() => _connectLoading = true);
+    try {
+      final url = await YoutubeService.fetchConnectUrl();
+      if (!mounted) return;
+      if (url == null || url.isEmpty) {
+        _showError('Impossible de démarrer la connexion YouTube');
+        return;
+      }
+      final uri = Uri.parse(url);
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        _showError('Impossible d\'ouvrir le navigateur');
+        return;
+      }
+      // Le flow OAuth est en cours dans le navigateur externe.
+      // didChangeAppLifecycleState(resumed) prendra la main au retour.
+      setState(() => _webReconnectPending = true);
+    } catch (e) {
+      if (mounted) _showError(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _connectLoading = false);
+    }
+  }
+
+  /// Dispatche vers le bon flow selon la plateforme.
+  Future<void> _connectForPlatform() async {
+    if (Platform.isAndroid || Platform.isIOS) {
+      await _connect();
+    } else {
+      await _webReconnect();
+    }
+  }
+
+  /// Connexion initiale via SDK Google natif (première liaison YouTube).
   Future<void> _connect() async {
     setState(() => _connectLoading = true);
     try {
@@ -35,6 +109,7 @@ class _YoutubeScreenState extends ConsumerState<YoutubeScreen> {
       if (!mounted) return;
       if (connected) {
         ref.invalidate(ytConnectedProvider);
+        ref.invalidate(ytOauthV2Provider);
         ref.invalidate(ytPlaylistsProvider);
       }
     } catch (e) {
@@ -158,7 +233,7 @@ class _DisconnectedView extends StatelessWidget {
             ),
             const SizedBox(height: 32),
             FilledButton.icon(
-              onPressed: s._connectLoading ? null : s._connect,
+              onPressed: s._connectLoading ? null : s._connectForPlatform,
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFFF0000),
                 foregroundColor: Colors.white,
@@ -203,6 +278,7 @@ class _ConnectedView extends ConsumerWidget {
       child: ListView(
         padding: const EdgeInsets.symmetric(vertical: 16),
         children: [
+          _ReconnectBanner(s),
           _LikesSection(s),
           const Divider(color: kSurface, height: 32),
           Padding(
@@ -394,6 +470,53 @@ class _ResultChip extends StatelessWidget {
       );
 }
 
+// Bandeau affiché pour les comptes connectés avant la migration OAuth —
+// leur refresh_token n'a que le scope youtube.readonly. Masqué après reconnexion.
+class _ReconnectBanner extends ConsumerWidget {
+  final _YoutubeScreenState s;
+  const _ReconnectBanner(this.s);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isV2 = ref.watch(ytOauthV2Provider).valueOrNull ?? true;
+    if (isV2) return const SizedBox.shrink(); // déjà à jour → pas de bandeau
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFF0000).withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFF0000).withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.update, color: Color(0xFFFF0000), size: 20),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Reconnecte YouTube pour activer les suggestions personnalisées.',
+              style: TextStyle(color: kTextPrimary, fontSize: 13, height: 1.4),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: s._connectLoading ? null : s._connectForPlatform,
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFFF0000),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: s._connectLoading
+                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFF0000)))
+                : const Text('Reconnecter', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _NeedsReconnectView extends StatelessWidget {
   final _YoutubeScreenState s;
   const _NeedsReconnectView(this.s);
@@ -413,7 +536,7 @@ class _NeedsReconnectView extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: s._connectLoading ? null : s._connect,
+              onPressed: s._connectLoading ? null : s._connectForPlatform,
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFFF0000),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

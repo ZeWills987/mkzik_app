@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
 import 'auth_widgets.dart';
+import 'forgot_password_screen.dart';
 import 'register_screen.dart';
 import 'windows_google_auth.dart';
 
@@ -190,7 +191,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     onPressed: () => setState(() => _obscure = !_obscure),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GestureDetector(
+                    onTap: () => ForgotPasswordScreen.open(context),
+                    child: const Text('Mot de passe oublié ?',
+                        style: TextStyle(color: kAccent, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+                const SizedBox(height: 20),
 
                 AuthButton(label: 'Se connecter', loading: auth.submitting, onPressed: _submit),
 

@@ -5,6 +5,7 @@ import '../../providers/player_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/track_actions.dart';
 import '../../widgets/mini_player.dart';
+import '../../widgets/empty_state.dart';
 
 /// Page "Voir tout" générique avec **chargement dynamique au scroll**
 /// (pagination) : on ne charge qu'une page de titres à la fois, puis les
@@ -93,13 +94,19 @@ class _TrackListScreenState extends ConsumerState<TrackListScreen> {
       return const Center(child: CircularProgressIndicator(color: kAccent));
     }
     if (state.error != null && state.tracks.isEmpty) {
-      return const Center(
-        child: Text('Erreur de chargement', style: TextStyle(color: kTextSecondary)),
+      return const EmptyState(
+        icon: Icons.cloud_off_rounded,
+        title: 'Chargement impossible',
+        subtitle: 'Vérifie ta connexion et tire vers le bas pour réessayer.',
       );
     }
     if (state.tracks.isEmpty) {
-      return const Center(
-        child: Text('Aucun titre', style: TextStyle(color: kTextSecondary, fontSize: 14)),
+      return EmptyState(
+        icon: Icons.music_off_rounded,
+        title: 'Aucun titre',
+        subtitle: widget.title == 'Historique'
+            ? 'Lance ta première écoute pour la retrouver ici.'
+            : null,
       );
     }
 

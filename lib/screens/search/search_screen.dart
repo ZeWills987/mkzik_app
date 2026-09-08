@@ -30,6 +30,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   final _controller = TextEditingController();
   final _focus = FocusNode();
+  final _scrollCtrl = ScrollController();
   Timer? _debounce;
   StreamSubscription<ExternalSearchEvent>? _extSub;
 
@@ -63,6 +64,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _extSub?.cancel();
     _controller.dispose();
     _focus.dispose();
+    _scrollCtrl.dispose();
     recentSearches.removeListener(_onRecentsChanged);
     super.dispose();
   }
@@ -72,9 +74,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   // ── Logique de recherche ────────────────────────────────────────────────
 
   void _onChanged(String value) {
+    final prevQuery = _query;
     setState(() {
       _query = value;
-      _showResults = false;
+      // Ne réinitialise les résultats que si le texte a réellement changé.
+      // Protège contre les événements IME Android qui re-déclenchent onChanged
+      // avec le même texte (ou +espace) juste après un submit + unfocus.
+      if (value.trim() != prevQuery.trim()) _showResults = false;
     });
     _debounce?.cancel();
     if (value.trim().isEmpty) {
@@ -117,6 +123,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         _loadingInternal = false;
         _rebuildSuggestions();
       });
+    }).catchError((_) {
+      if (mounted && query == _lastInternalRun) setState(() => _loadingInternal = false);
     });
   }
 
@@ -187,15 +195,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   /// Lance les fetchs manquants pour la requête soumise selon la plateforme
-  /// sélectionnée (appelé au submit et au changement de plateforme).
-  /// L'interne est toujours fetchée (rapide, alimente aussi l'onglet USER) ;
-  /// le SSE externe (une seule requête pour YT+SC) seulement si besoin.
+  /// sélectionnée. L'interne est toujours fetchée ; le SSE externe seulement
+  /// si la plateforme est YT/SC et que la requête n'a pas encore été fetchée.
   void _ensureFetches() {
     if (!_showResults || _query.isEmpty) return;
     final selected = ref.read(searchFilterProvider);
     if (_query != _lastInternalRun) _runInternal(_query);
-    if (selected != SearchPlatform.mkzik && _query != _lastExternalRun) _runExternal(_query);
+    if (selected != SearchPlatform.mkzik && _query != _lastExternalRun) {
+      _runExternal(_query);
+    }
   }
+
 
   void _rebuildSuggestions() {
     _suggestions = SearchEngine.buildSuggestions(
@@ -335,6 +345,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                             platform: p,
                             active: selected == p,
                             onTap: () {
+                              if (_scrollCtrl.hasClients) _scrollCtrl.jumpTo(0);
                               notifier.select(p);
                               // Bascule vers YT/SC après le submit → lance le
                               // fetch externe s'il n'a pas encore eu lieu.
@@ -479,34 +490,31 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       {required bool external, bool footerLoading = false, TrackDot dot = TrackDot.origin}) {
     if (tracks.isEmpty) return const EmptyResults();
     return ListView.builder(
-      // Padding bas augmenté quand le player flotte par-dessus la liste
-      padding: EdgeInsets.fromLTRB(16, 8, 16, 8 + miniPlayerListPadding(ref)),
-      // TrackResultRow n'a pas d'état à préserver hors écran → pas besoin de
-      // le garder vivant quand il sort du viewport (moins de mémoire/coût sur
-      // les listes longues, notamment avec 60-80 résultats fusionnés).
-      addAutomaticKeepAlives: false,
-      // +1 ligne pour le loader de fin tant que le stream externe continue
-      itemCount: tracks.length + (footerLoading ? 1 : 0),
-      itemBuilder: (_, i) {
-        if (i >= tracks.length) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
-            child: Center(
-              child: SizedBox(
-                width: 22, height: 22,
-                child: CircularProgressIndicator(color: kAccent, strokeWidth: 2.2),
+        controller: _scrollCtrl,
+        padding: EdgeInsets.fromLTRB(16, 8, 16, 8 + miniPlayerListPadding(ref)),
+        addAutomaticKeepAlives: false,
+        itemCount: tracks.length + (footerLoading ? 1 : 0),
+        itemBuilder: (_, i) {
+          if (i >= tracks.length) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 22, height: 22,
+                  child: CircularProgressIndicator(color: kAccent, strokeWidth: 2.2),
+                ),
               ),
-            ),
+            );
+          }
+          final track = tracks[i];
+          return TrackResultRow(
+            track: track,
+            showPublishedAt: true,
+            dot: dot,
+            onTap: () => ref.read(playerProvider.notifier).playTrack(track, queue: tracks),
+            onMenu: () => showTrackActionsSheet(context, ref, track),
           );
-        }
-        return TrackResultRow(
-          track: tracks[i],
-          showPublishedAt: true,
-          dot: dot,
-          onTap: () => ref.read(playerProvider.notifier).playTrack(tracks[i], queue: tracks),
-          onMenu: () => showTrackActionsSheet(context, ref, tracks[i]),
-        );
-      },
+        },
     );
   }
 
