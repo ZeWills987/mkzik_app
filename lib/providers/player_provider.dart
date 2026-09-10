@@ -123,6 +123,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   // (insertions d'hydratation, reconstruction radio) pour éviter les faux "track changed".
   bool _suppressIndexChange = false;
 
+  // Windows : flag pour distinguer un skip utilisateur (next/prev/jumpTo) d'une
+  // auto-avance native déclenchée par la fin du flux HTTP (et non de l'audio).
+  // WinRT avance dès que le response body est reçu, même si le buffer joue encore.
+  bool _userInitiatedSkip = false;
+
   // Contrôles média système Windows (SMTC) — null sur mobile.
   SMTCWindows? _smtc;
 
@@ -301,6 +306,31 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // Même titre (l'index a juste été décalé par une insertion d'hydratation) →
     // on ne remet pas la position à 0 et on ne ré-enregistre pas l'écoute.
     final sameTrack = t.id == state.currentTrack?.id;
+
+    // Windows : WinRT auto-avance dès que le buffer HTTP est épuisé, même si
+    // l'audio n'est pas fini de jouer. On bloque ce skip si la position est
+    // inférieure à 85 % de la durée affichée ET que l'utilisateur n'a pas
+    // déclenché le skip lui-même (next/prev/jumpTo).
+    if (!sameTrack && Platform.isWindows && !_userInitiatedSkip) {
+      final prevDur = state.duration;
+      final prevPos = state.position;
+      if (prevDur.inSeconds > 5 && prevPos.inSeconds < prevDur.inSeconds * 0.85) {
+        mkLog('Mkzik ▶ Windows skip prématuré bloqué '
+            '(pos=${prevPos.inSeconds}s / dur=${prevDur.inSeconds}s) → restitution');
+        final prevTrack = state.currentTrack;
+        if (prevTrack != null) {
+          final prevPIdx = _playerTracks.indexWhere((x) => x.id == prevTrack.id);
+          if (prevPIdx >= 0) {
+            unawaited(() async {
+              await _audio.seek(prevPos, index: prevPIdx);
+              if (!_audio.playing) await _audio.play();
+            }());
+          }
+        }
+        return; // bloque le skip prématuré
+      }
+    }
+    _userInitiatedSkip = false;
     final qIdx = state.queue.indexWhere((x) => x.id == t.id);
     state = state.copyWith(
       currentTrack: t,
@@ -724,6 +754,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   // next/previous cycliques, délégués au moteur natif (cohérent avec la notif).
   Future<void> next() async {
+    _userInitiatedSkip = true;
     final n = _playerTracks.length;
     if (n < 2) return;
     if (_audio.hasNext) {
@@ -734,6 +765,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> previous() async {
+    _userInitiatedSkip = true;
     final n = _playerTracks.length;
     if (n < 2) return;
     if (_audio.hasPrevious) {
@@ -814,6 +846,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   Future<void> jumpTo(int index) async {
     if (index < 0 || index >= state.queue.length) return;
     if (index == state.currentIndex) return;
+    _userInitiatedSkip = true;
     final t = state.queue[index];
     final pIdx = _playerTracks.indexWhere((x) => x.id == t.id);
     if (pIdx >= 0) {
