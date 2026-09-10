@@ -11,7 +11,7 @@ bool get _googleSignInSupported => Platform.isAndroid || Platform.isIOS;
 
 final _googleSignIn = GoogleSignIn(
   scopes: ['email', 'profile'],
-  serverClientId: '213466958348-avn5kkl5etcit9cgjfoiijg7rhpmcvtl.apps.googleusercontent.com',
+  serverClientId: '209129894628-l1es9tbodhdiqq3nft1ac8kl3mjfie5l.apps.googleusercontent.com',
 );
 
 /// Erreur d'authentification avec message lisible pour l'UI.
