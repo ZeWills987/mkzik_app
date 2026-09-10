@@ -45,11 +45,30 @@ android {
         versionName = flutter.versionName
     }
 
+    // Signing release : keystore lu depuis key.properties (local) ou variables
+    // d'environnement injectées par le CI (ANDROID_STORE_PASSWORD, etc.).
+    val keyProps = Properties().apply {
+        val f = rootProject.file("key.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    fun env(key: String) = System.getenv(key) ?: ""
+
+    signingConfigs {
+        create("release") {
+            storeFile = file(keyProps["storeFile"] as? String
+                ?: (rootProject.rootDir.absolutePath + "/app/mkzik-release.keystore"))
+            storePassword = keyProps.getProperty("storePassword").takeIf { !it.isNullOrBlank() }
+                ?: env("ANDROID_STORE_PASSWORD")
+            keyAlias = keyProps.getProperty("keyAlias").takeIf { !it.isNullOrBlank() }
+                ?: env("ANDROID_KEY_ALIAS")
+            keyPassword = keyProps.getProperty("keyPassword").takeIf { !it.isNullOrBlank() }
+                ?: env("ANDROID_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }

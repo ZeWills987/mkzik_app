@@ -54,3 +54,5 @@ app.*.map.json
 # Compteur de build auto-incrémenté (versionCode) — local
 android/app/version.properties
 android/app/google-services.json
+android/app/*.keystore
+android/key.properties

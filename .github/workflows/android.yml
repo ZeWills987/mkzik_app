@@ -48,6 +48,19 @@ jobs:
             printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
           fi
 
+      # Keystore de release : stocké en base64 dans le secret ANDROID_KEYSTORE_BASE64.
+      # Décodé dans android/app/ pour que build.gradle.kts puisse le lire.
+      - name: Restaurer le keystore de release
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 --decode > android/app/mkzik-release.keystore
+          fi
+
       - name: Installer Java 17
         uses: actions/setup-java@v4
         with:
