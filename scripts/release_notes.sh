@@ -22,7 +22,8 @@ commits() {
   git log $range --no-merges --pretty=format:'%s' \
     | grep -E "$1" \
     | sed -E 's/^[a-z]+(\([^)]*\))?: ?//' \
-    | sed -E 's/ *\[(build|android|ios)\]//g' \
+    | sed -E 's/ *\[(build|android|ios|windows)\]//g' \
+    | grep -viE '(google-services|workflow|secret|CI build|\.yml|\.yaml|gitignore|filter-repo|bfg)' \
     | sed -E 's/^/- /'
 }
 
