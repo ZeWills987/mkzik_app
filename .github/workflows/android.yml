@@ -58,7 +58,7 @@ jobs:
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
           if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 --decode > android/app/mkzik-release.keystore
+            echo "$KEYSTORE_B64" | base64 --decode > android/app/mkzik-release-v2.keystore
           fi
 
       - name: Installer Java 17

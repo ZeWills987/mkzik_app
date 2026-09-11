@@ -56,7 +56,7 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file(keyProps["storeFile"] as? String
-                ?: (rootProject.rootDir.absolutePath + "/app/mkzik-release.keystore"))
+                ?: (rootProject.rootDir.absolutePath + "/app/mkzik-release-v2.keystore"))
             storePassword = keyProps.getProperty("storePassword").takeIf { !it.isNullOrBlank() }
                 ?: env("ANDROID_STORE_PASSWORD")
             keyAlias = keyProps.getProperty("keyAlias").takeIf { !it.isNullOrBlank() }
