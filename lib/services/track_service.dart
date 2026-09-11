@@ -211,6 +211,22 @@ class TrackService {
     return out;
   }
 
+  /// `GET api/me/imports?limit=&offset=` → Ziks importés de l'utilisateur.
+  /// Réponse : { imports: [{imported_at, source_url, track}], total }.
+  static Future<List<Track>> getImports({int limit = 20, int offset = 0}) async {
+    final res = await ApiClient.getUri(_api('api/me/imports', {'limit': '$limit', 'offset': '$offset'}));
+    final data = res.orElse(null);
+    if (data is! Map) return const [];
+    final list = data['imports'];
+    if (list is! List) return const [];
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map((j) => j['track'])
+        .whereType<Map<String, dynamic>>()
+        .map(Track.fromJson)
+        .toList();
+  }
+
   /// `POST api/external-track/download` body {track_url} → import d'un externe.
   static Future<Map<String, dynamic>?> importExternalTrack(String trackUrl) async {
     final res = await ApiClient.postUri(_api('api/external-track/download'), body: {'track_url': trackUrl});

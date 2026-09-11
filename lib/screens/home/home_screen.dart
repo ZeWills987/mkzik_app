@@ -8,6 +8,7 @@ import '../../models/track.dart';
 import '../../models/track_visuals.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/home_provider.dart';
+import '../../providers/imports_provider.dart';
 import '../../providers/paginated_tracks_provider.dart';
 import '../../widgets/track_card.dart';
 import '../../widgets/track_cover.dart';
@@ -22,6 +23,7 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final newsAsync = ref.watch(newsFeedProvider);
     final historyAsync = ref.watch(historyPlayProvider);
+    final importsState = ref.watch(importsProvider);
 
     // Données affichées (le repli démo éventuel est géré dans les providers)
     final tracks = newsAsync.maybeWhen(data: (d) => d, orElse: () => const <Track>[]);
@@ -29,6 +31,8 @@ class HomeScreen extends ConsumerWidget {
     final Track? featured = tracks.isNotEmpty ? tracks.first : null;
     final isLoadingNews = newsAsync.isLoading;
     final isLoadingHistory = historyAsync.isLoading;
+    final importTracks = importsState.tracks;
+    final isLoadingImports = importsState.initialLoading;
 
     return SafeArea(
       child: RefreshIndicator(
@@ -40,6 +44,7 @@ class HomeScreen extends ConsumerWidget {
           await Future.wait([
             ref.read(newsFeedProvider.future),
             ref.read(historyPlayProvider.future),
+            ref.read(importsProvider.notifier).refresh(),
           ]);
         },
         child: CustomScrollView(
@@ -115,6 +120,34 @@ class HomeScreen extends ConsumerWidget {
                           ),
               ),
             ),
+            if (importTracks.isNotEmpty || isLoadingImports) ...[
+              SliverToBoxAdapter(
+                child: _SectionHeader(
+                  title: 'Importé',
+                  onSeeAll: importTracks.isNotEmpty
+                      ? () => TrackListScreen.open(
+                            context,
+                            title: 'Importé',
+                            provider: importsPagedProvider,
+                          )
+                      : null,
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 250,
+                  child: isLoadingImports
+                      ? const _LoadingRow(height: 250)
+                      : ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: importTracks.length,
+                          separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
+                          itemBuilder: (_, i) => TrackCard(track: importTracks[i], queue: importTracks),
+                        ),
+                ),
+              ),
+            ],
             // Espace de fin : + hauteur du player flottant s'il est affiché
             SliverToBoxAdapter(child: SizedBox(height: 32 + miniPlayerListPadding(ref))),
           ],

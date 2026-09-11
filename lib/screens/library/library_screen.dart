@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/playlist.dart';
 import '../../models/track.dart';
 import '../../providers/favourites_provider.dart';
+import '../../providers/imports_provider.dart';
 import '../../providers/paginated_tracks_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../providers/player_provider.dart';
@@ -21,11 +22,12 @@ class LibraryScreen extends ConsumerStatefulWidget {
 }
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen> {
-  int _tab = 0; // 0 = Tout, 1 = Favoris, 2 = Playlists
+  int _tab = 0; // 0 = Tout, 1 = Favoris, 2 = Playlists, 3 = Importé
 
   @override
   Widget build(BuildContext context) {
     final fav = ref.watch(favouritesProvider); // paginé (PagedTracksState)
+    final imp = ref.watch(importsProvider); // paginé (PagedTracksState)
     final plAsync = ref.watch(playlistsProvider);
 
     return Scaffold(
@@ -38,14 +40,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             ref.invalidate(playlistsProvider);
             await Future.wait([
               ref.read(favouritesProvider.notifier).refresh(),
+              ref.read(importsProvider.notifier).refresh(),
               ref.read(playlistsProvider.future),
             ]);
           },
-          // Approche du bas de liste → page suivante des favoris
+          // Approche du bas de liste → page suivante (favoris ou imports selon tab)
           child: NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n.metrics.pixels >= n.metrics.maxScrollExtent - 400) {
-                ref.read(favouritesProvider.notifier).loadMore();
+                if (_tab == 1) ref.read(favouritesProvider.notifier).loadMore();
+                if (_tab == 3) ref.read(importsProvider.notifier).loadMore();
               }
               return false;
             },
@@ -56,9 +60,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 SliverToBoxAdapter(
                   child: _Tabs(current: _tab, onTap: (i) => setState(() => _tab = i)),
                 ),
-                ..._contentSlivers(fav, plAsync),
+                ..._contentSlivers(fav, imp, plAsync),
                 // Loader de pagination en pied de liste
-                if (fav.loadingMore && _tab != 2)
+                if ((fav.loadingMore && _tab == 1) || (imp.loadingMore && _tab == 3))
                   const SliverToBoxAdapter(
                     child: Padding(
                       padding: EdgeInsets.symmetric(vertical: 16),
@@ -80,12 +84,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     );
   }
 
-  List<Widget> _contentSlivers(PagedTracksState fav, AsyncValue<List<Playlist>> plAsync) {
+  List<Widget> _contentSlivers(PagedTracksState fav, PagedTracksState imp, AsyncValue<List<Playlist>> plAsync) {
     switch (_tab) {
       case 1:
         return [_favouritesSliver(context, ref, fav)];
       case 2:
         return [_playlistsSliver(context, ref, plAsync)];
+      case 3:
+        return [_importsSliver(context, ref, imp)];
       default:
         return [_allSliver(context, ref, fav, plAsync)];
     }
@@ -193,6 +199,33 @@ Widget _favouritesSliver(BuildContext context, WidgetRef ref, PagedTracksState f
   if (tracks.isEmpty) {
     return const SliverToBoxAdapter(
       child: _InlineMessage('Aucun favori — like des Ziks pour les retrouver ici.'),
+    );
+  }
+  return SliverList(
+    delegate: SliverChildBuilderDelegate(
+      (context, i) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: TrackResultRow(
+          track: tracks[i],
+          onTap: () => ref.read(playerProvider.notifier).playTrack(tracks[i], queue: tracks),
+          onMenu: () => showTrackActionsSheet(context, ref, tracks[i]),
+        ),
+      ),
+      childCount: tracks.length,
+      addAutomaticKeepAlives: false,
+    ),
+  );
+}
+
+Widget _importsSliver(BuildContext context, WidgetRef ref, PagedTracksState imp) {
+  if (imp.initialLoading) return const SliverToBoxAdapter(child: _InlineLoader());
+  if (imp.error != null) {
+    return const SliverToBoxAdapter(child: _InlineMessage('Imports indisponibles.'));
+  }
+  final tracks = imp.tracks;
+  if (tracks.isEmpty) {
+    return const SliverToBoxAdapter(
+      child: _InlineMessage('Aucun import — utilise le bouton d\'import pour ajouter des Ziks.'),
     );
   }
   return SliverList(
@@ -331,7 +364,7 @@ class _Tabs extends StatelessWidget {
   final ValueChanged<int> onTap;
   const _Tabs({required this.current, required this.onTap});
 
-  static const _labels = ['Tout', 'Favoris', 'Playlists'];
+  static const _labels = ['Tout', 'Favoris', 'Playlists', 'Importé'];
 
   @override
   Widget build(BuildContext context) {
