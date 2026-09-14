@@ -7,6 +7,8 @@ class Profile {
   final String description;
   final int nbFollowers;
   final int nbFollowing;
+  final int nbTracks;
+  final int totalPlays;
   final bool isFollowing;
   // Champs privés renvoyés uniquement pour son propre profil (édition)
   final String email;
@@ -22,6 +24,8 @@ class Profile {
     this.description = '',
     this.nbFollowers = 0,
     this.nbFollowing = 0,
+    this.nbTracks = 0,
+    this.totalPlays = 0,
     this.isFollowing = false,
     this.email = '',
     this.firstName = '',
@@ -40,6 +44,8 @@ class Profile {
         description: (j['description'] ?? '').toString(),
         nbFollowers: (j['nb_followers'] as num?)?.toInt() ?? 0,
         nbFollowing: (j['nb_following'] as num?)?.toInt() ?? 0,
+        nbTracks: (j['nb_tracks'] as num?)?.toInt() ?? 0,
+        totalPlays: (j['total_plays'] as num?)?.toInt() ?? 0,
         isFollowing: j['is_following'] == true,
         email: (j['email'] ?? '').toString(),
         firstName: (j['firstName'] ?? j['first_name'] ?? '').toString(),

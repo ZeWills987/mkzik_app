@@ -34,7 +34,6 @@ class ProfileService {
   }
 
   /// `PUT api/update` (JSON) — met à jour les champs fournis (non vides).
-  /// Renvoie un `newToken` si l'username a changé (nouveau JWT côté backend).
   static Future<({bool ok, String message, String? newToken})> updateProfile(Map<String, String> fields) async {
     final body = <String, dynamic>{};
     fields.forEach((k, v) {

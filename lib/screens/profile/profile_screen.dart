@@ -6,7 +6,6 @@ import '../../models/track.dart';
 import '../../models/track_visuals.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/profile_provider.dart';
-import '../../providers/paginated_tracks_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/notice_provider.dart';
 import '../../providers/albums_provider.dart';
@@ -111,7 +110,7 @@ class ProfileScreen extends ConsumerWidget {
                   SliverToBoxAdapter(child: _Bio(text: profile.description)),
                 SliverToBoxAdapter(child: _AlbumsSection(username: resolved)),
                 SliverToBoxAdapter(
-                  child: _ZiksHeader(count: tracks.tracks.length, hasMore: tracks.hasMore),
+                  child: _ZiksHeader(count: profile.nbTracks),
                 ),
                 if (tracks.initialLoading)
                   const SliverToBoxAdapter(
@@ -513,6 +512,10 @@ class _StatsCard extends ConsumerWidget {
           _Stat(value: profile.nbFollowers, label: 'Followers'),
           _divider(),
           _Stat(value: profile.nbFollowing, label: 'Suivis'),
+          if (profile.totalPlays > 0) ...[
+            _divider(),
+            _Stat(value: profile.totalPlays, label: 'Écoutes'),
+          ],
         ],
       ),
     );
@@ -567,12 +570,11 @@ class _Bio extends StatelessWidget {
 
 class _ZiksHeader extends StatelessWidget {
   final int count;
-  final bool hasMore;
-  const _ZiksHeader({required this.count, this.hasMore = false});
+  const _ZiksHeader({required this.count});
 
   @override
   Widget build(BuildContext context) {
-    final label = count == 0 ? '' : (hasMore ? '$count+' : '$count');
+    final label = count > 0 ? '$count' : '';
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 28, 20, 8),
       child: Row(

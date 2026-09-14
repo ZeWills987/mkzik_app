@@ -227,13 +227,6 @@ class TrackService {
         .toList();
   }
 
-  /// `POST api/external-track/download` body {track_url} → import d'un externe.
-  static Future<Map<String, dynamic>?> importExternalTrack(String trackUrl) async {
-    final res = await ApiClient.postUri(_api('api/external-track/download'), body: {'track_url': trackUrl});
-    final data = res.orElse(null);
-    return data is Map<String, dynamic> ? data : null;
-  }
-
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   static Uri _api(String path, [Map<String, String>? query]) =>
