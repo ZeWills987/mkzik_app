@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../providers/notice_provider.dart';
 import '../../services/track_upload_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/tappable.dart';
 
 const _kGenres = [
   'Rap', 'Trap', 'Afro', 'Zouk', 'Kompa', 'R&B', 'Pop', 'Soul',
@@ -147,7 +148,7 @@ class _UploadTrackScreenState extends ConsumerState<UploadTrackScreen> {
           children: [
             // ── Fichier audio ──────────────────────────────────────────────
             _sectionLabel('Fichier audio *'),
-            GestureDetector(
+            Tappable(
               onTap: _loading ? null : _pickAudio,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -220,7 +221,7 @@ class _UploadTrackScreenState extends ConsumerState<UploadTrackScreen> {
               runSpacing: 8,
               children: _kGenres.map((g) {
                 final selected = _selectedGenres.contains(g);
-                return GestureDetector(
+                return Tappable(
                   onTap: () => setState(() {
                     if (selected) {
                       _selectedGenres.remove(g);
@@ -255,7 +256,7 @@ class _UploadTrackScreenState extends ConsumerState<UploadTrackScreen> {
 
             // ── Pochette ─────────────────────────────────────────────────
             _sectionLabel('Pochette'),
-            GestureDetector(
+            Tappable(
               onTap: _loading ? null : _pickCover,
               child: Container(
                 height: 80,
@@ -282,7 +283,7 @@ class _UploadTrackScreenState extends ConsumerState<UploadTrackScreen> {
                               child: Text('Image sélectionnée',
                                   style: TextStyle(color: kTextPrimary, fontSize: 13.5)),
                             ),
-                            GestureDetector(
+                            Tappable(
                               onTap: () => setState(() => _coverPath = null),
                               child: const Padding(
                                 padding: EdgeInsets.only(right: 14),
@@ -407,7 +408,7 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selected = value == current;
-    return GestureDetector(
+    return Tappable(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),

@@ -16,6 +16,12 @@ sealed class ApiResult<T> {
         Ok<T>(:final data) => data,
         Err<T>() => fallback,
       };
+
+  /// Donnée si succès, sinon lève une [Exception] avec le message d'erreur.
+  T getOrThrow() => switch (this) {
+        Ok<T>(:final data) => data,
+        Err<T>(:final message) => throw Exception(message),
+      };
 }
 
 class Ok<T> extends ApiResult<T> {

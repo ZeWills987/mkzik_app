@@ -105,7 +105,7 @@ class TrackService {
   /// `GET api/news?limit=&offset=` → feed d'actualité.
   static Future<List<Track>> getNewsFeed({int limit = 10, int offset = 0}) async {
     final res = await ApiClient.getUri(_api('api/news', {'limit': '$limit', 'offset': '$offset'}));
-    return _tracksFrom(res.orElse(null));
+    return _tracksFrom(res.getOrThrow());
   }
 
   /// `GET api/history/tracks?limit=&offset=` → historique d'écoute.
@@ -113,7 +113,7 @@ class TrackService {
   /// avec le wildcard `GET api/tracks/{username}`.
   static Future<List<Track>> getHistoryPlay({int limit = 10, int offset = 0}) async {
     final res = await ApiClient.getUri(_api('api/history/tracks', {'limit': '$limit', 'offset': '$offset'}));
-    return _tracksFrom(res.orElse(null));
+    return _tracksFrom(res.getOrThrow());
   }
 
   /// `GET api/trending?limit=` → utilisateurs tendance.

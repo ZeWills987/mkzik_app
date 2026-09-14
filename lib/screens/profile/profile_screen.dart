@@ -120,6 +120,30 @@ class ProfileScreen extends ConsumerWidget {
                       child: Center(child: CircularProgressIndicator(color: kAccent)),
                     ),
                   )
+                else if (tracks.error != null && tracks.tracks.isEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 40),
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.cloud_off_rounded, color: kTextSecondary, size: 40),
+                            const SizedBox(height: 12),
+                            const Text('Impossible de charger les ziks',
+                                style: TextStyle(color: kTextSecondary, fontSize: 14)),
+                            const SizedBox(height: 8),
+                            TextButton(
+                              onPressed: () =>
+                                  ref.read(profileTracksProvider(resolved).notifier).refresh(),
+                              child: const Text('Réessayer',
+                                  style: TextStyle(color: kAccent, fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
                 else
                   SliverList(
                     delegate: SliverChildBuilderDelegate(

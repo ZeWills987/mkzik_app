@@ -35,6 +35,8 @@ class HomeScreen extends ConsumerWidget {
     final Track? featured = tracks.isNotEmpty ? tracks.first : null;
     final isLoadingNews = newsAsync.isLoading;
     final isLoadingHistory = historyAsync.isLoading;
+    final hasNewsError = newsAsync.hasError;
+    final hasHistoryError = historyAsync.hasError;
     final importTracks = importsState.tracks;
     final isLoadingImports = importsState.initialLoading;
 
@@ -82,14 +84,21 @@ class HomeScreen extends ConsumerWidget {
                 height: 272,
                 child: isLoadingNews
                     ? const _LoadingRow(height: 272)
-                    : tracks.isEmpty
+                    : hasNewsError
                         ? const EmptyState(
-                            icon: Icons.newspaper_rounded,
-                            title: 'Aucune nouveauté',
-                            subtitle: 'Les nouvelles sorties apparaîtront ici.',
+                            icon: Icons.cloud_off_rounded,
+                            title: 'Connexion indisponible',
+                            subtitle: 'Tire vers le bas pour réessayer.',
                             fullScreen: false,
                           )
-                        : ListView.separated(
+                        : tracks.isEmpty
+                            ? const EmptyState(
+                                icon: Icons.newspaper_rounded,
+                                title: 'Aucune nouveauté',
+                                subtitle: 'Les nouvelles sorties apparaîtront ici.',
+                                fullScreen: false,
+                              )
+                            : ListView.separated(
                             scrollDirection: Axis.horizontal,
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             itemCount: tracks.length,
@@ -113,14 +122,21 @@ class HomeScreen extends ConsumerWidget {
                 height: 250,
                 child: isLoadingHistory
                     ? const _LoadingRow(height: 250)
-                    : historyTracks.isEmpty
+                    : hasHistoryError
                         ? const EmptyState(
-                            icon: Icons.history_rounded,
-                            title: 'Aucun historique',
-                            subtitle: 'Lance ta première écoute pour la retrouver ici.',
+                            icon: Icons.cloud_off_rounded,
+                            title: 'Connexion indisponible',
+                            subtitle: 'Tire vers le bas pour réessayer.',
                             fullScreen: false,
                           )
-                        : ListView.separated(
+                        : historyTracks.isEmpty
+                            ? const EmptyState(
+                                icon: Icons.history_rounded,
+                                title: 'Aucun historique',
+                                subtitle: 'Lance ta première écoute pour la retrouver ici.',
+                                fullScreen: false,
+                              )
+                            : ListView.separated(
                             scrollDirection: Axis.horizontal,
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             itemCount: historyTracks.length,
