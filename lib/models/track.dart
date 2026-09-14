@@ -121,12 +121,12 @@ class Track {
     return Track(
       // Les externes (ytm/sc) n'ont pas d'id → url comme id stable
       id: rawId?.toString() ??
-          (j['url']?.toString() ?? DateTime.now().microsecondsSinceEpoch.toString()),
+          (j['url']?.toString() ?? j['page_url']?.toString() ?? DateTime.now().microsecondsSinceEpoch.toString()),
       apiId: apiId,
       title: (j['title'] ?? '').toString(),
       artist: artist,
-      coverUrl: (j['thumbnails'] ?? '').toString(),
-      pageUrl: (j['url'] ?? '').toString(),
+      coverUrl: (j['thumbnails'] ?? j['cover_url'] ?? '').toString(),
+      pageUrl: (j['url'] ?? j['page_url'] ?? '').toString(),
       duration: Duration(seconds: (j['duration'] as num?)?.toInt() ?? 0),
       audioUrl: (j['audio_url'] ?? '').toString(),
       likesCount: (j['likes'] as num?)?.toInt() ?? 0,

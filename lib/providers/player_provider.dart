@@ -10,6 +10,7 @@ import '../config/api_config.dart';
 import '../models/track.dart';
 import '../services/track_service.dart';
 import '../services/radio_service.dart';
+import '../services/stream_service.dart';
 import '../utils/media.dart';
 import 'import_provider.dart';
 import 'favourites_provider.dart';
@@ -350,6 +351,16 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // partiel pendant l'hydratation en arrière-plan.)
     if (qIdx >= 0 && qIdx == state.queue.length - 1) {
       unawaited(_maybeExtendWithRadio());
+    }
+    // Pré-chauffe yt-dlp pour la prochaine track externe (réduit la latence au skip).
+    if (!sameTrack) {
+      final ni = state.currentIndex + 1;
+      if (ni < state.queue.length) {
+        final next = state.queue[ni];
+        if (next.needsStream && next.pageUrl.isNotEmpty) {
+          StreamService.prepareNext(next.pageUrl);
+        }
+      }
     }
   }
 

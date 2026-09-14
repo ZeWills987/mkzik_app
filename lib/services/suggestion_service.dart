@@ -24,6 +24,10 @@ class SuggestionService {
   static Future<List<Track>> youtubeHome({int limit = 16}) =>
       _list('suggestions/youtube/home', {'limit': '$limit'}, 'ytm');
 
+  /// Top YouTube Music par pays. [country] = code ISO (défaut "ZZ" = mondial).
+  static Future<List<Track>> youtubeTop({int limit = 30, String country = 'ZZ'}) =>
+      _list('suggestions/youtube/top', {'limit': '$limit', 'country': country}, 'ytm');
+
   /// Top SoundCloud (charts publiques). [genre] = genre des charts SC.
   static Future<List<Track>> soundcloudTop({int limit = 25, String genre = 'all-music'}) =>
       _list('suggestions/soundcloud/top', {'genre': genre, 'limit': '$limit'}, 'sc');
