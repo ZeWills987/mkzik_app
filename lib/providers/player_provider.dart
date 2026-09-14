@@ -556,9 +556,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final signed = await TrackService.getSignedAudioUrlsBatch(toSign);
     if (token != _playToken || _playlist == null) return;
 
-    Track? resolve(Track t) {
+    // needsStream : on ne précharge QUE la track suivante pour éviter une
+    // rafale de requêtes Python sur toute la file.
+    final nextStreamIdx = selIdx + 1 < q.length ? selIdx + 1 : -1;
+
+    Track? resolve(Track t, int i) {
       if (t.hasPlayableUrl) return t;
       if (t.needsStream) {
+        if (Platform.isWindows || i != nextStreamIdx) return null;
         return t.pageUrl.isNotEmpty ? t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl)) : null;
       }
       final url = t.apiId != null ? signed[t.apiId!] : null;
@@ -566,7 +571,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
 
     final resolved = [
-      for (var i = 0; i < q.length; i++) i == selIdx ? current : resolve(q[i]),
+      for (var i = 0; i < q.length; i++) i == selIdx ? current : resolve(q[i], i),
     ];
 
     // Sépare les titres jouables avant / après le titre courant
@@ -639,11 +644,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// WinRT (sourceNotSupportedError) → on les exclut de la file silencieusement.
   Future<Track?> _resolveForQueue(Track t) async {
     if (t.hasPlayableUrl) return t;
-    if (t.needsStream) {
-      if (Platform.isWindows) return null;
-      if (t.pageUrl.isNotEmpty) return t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
-      return null;
-    }
+    if (t.needsStream) return null; // résolu uniquement quand la track devient courante
     if (t.apiId != null) {
       final signed = await TrackService.getSignedAudioUrl(t.apiId!);
       if (signed != null && signed.isNotEmpty) return t.copyWith(audioUrl: signed);
