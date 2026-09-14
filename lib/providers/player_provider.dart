@@ -234,8 +234,17 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   // l'affiche en grand et en extrait les couleurs pour teinter la notif (cf. Spotify).
   AudioSource _audioSourceFor(Track t) {
     final cover = mediaUrl(t.coverUrl);
+    // Pour les flux externes (/stream?url=...) : on passe le JWT via header
+    // Authorization pour que Python puisse le relayer à Symfony et déclencher
+    // le tracking d'écoute. Le user_id en query param reste mais n'est plus
+    // le critère d'identité côté Symfony.
+    final jwt = ApiConfig.token;
+    final headers = (t.needsStream && (jwt?.isNotEmpty ?? false))
+        ? <String, String>{'Authorization': 'Bearer $jwt'}
+        : null;
     return AudioSource.uri(
       Uri.parse(t.audioUrl),
+      headers: headers,
       tag: MediaItem(
         id: t.id,
         title: t.title,
