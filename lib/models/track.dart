@@ -71,6 +71,22 @@ class Track {
   /// externe ET pas encore dans la BD Mkzik.
   bool get needsStream => needsImport && !inMkzik;
 
+  /// Clé pour les routes de like externe (`POST /api/external-tracks/likes`).
+  /// Retourne (platform, externalId) si le track est likeable en externe,
+  /// null sinon (track interne ou URL non reconnue).
+  ({String platform, String externalId})? get externalLikeKey {
+    if (!needsStream || pageUrl.isEmpty) return null;
+    if (source == 'ytm') {
+      final videoId = Uri.tryParse(pageUrl)?.queryParameters['v'];
+      if (videoId == null || videoId.isEmpty) return null;
+      return (platform: 'youtube', externalId: videoId);
+    }
+    if (source == 'sc') {
+      return (platform: 'soundcloud', externalId: pageUrl);
+    }
+    return null;
+  }
+
   /// URL audio directement jouable ? (sinon il faut une URL signée)
   bool get hasPlayableUrl => audioUrl.startsWith('http');
 

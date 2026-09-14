@@ -9,6 +9,7 @@ import '../providers/import_provider.dart';
 import '../providers/favourites_provider.dart';
 import '../providers/notice_provider.dart';
 import '../providers/playlist_provider.dart';
+import '../services/external_track_service.dart';
 import '../services/track_service.dart';
 import '../services/playlist_service.dart';
 import '../theme/app_theme.dart';
@@ -279,16 +280,31 @@ void showTrackActionsSheet(BuildContext context, WidgetRef ref, Track track) {
       },
       onLike: () async {
         Navigator.pop(ctx);
-        if (track.apiId == null) {
-          toast('Action indisponible pour ce titre');
-          return;
+        late final ({bool ok, bool isLiked, int likes}) res;
+        if (track.needsStream) {
+          final key = track.externalLikeKey;
+          if (key == null) {
+            toast('Action indisponible pour ce titre');
+            return;
+          }
+          res = await ExternalTrackService.toggleLike(
+            platform: key.platform,
+            externalId: key.externalId,
+            title: track.title,
+            artist: track.artist,
+          );
+        } else {
+          if (track.apiId == null) {
+            toast('Action indisponible pour ce titre');
+            return;
+          }
+          res = await TrackService.toggleLike(track.apiId!);
+          if (res.ok) ref.invalidate(favouritesProvider);
         }
-        final res = await TrackService.toggleLike(track.apiId!);
         if (!res.ok) {
           toast('Échec, réessaie');
           return;
         }
-        ref.invalidate(favouritesProvider); // la librairie se met à jour
         toast(res.isLiked ? 'Ajouté aux favoris' : 'Retiré des favoris');
       },
       onShare: () {

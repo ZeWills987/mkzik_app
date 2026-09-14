@@ -9,6 +9,7 @@ import '../../providers/import_provider.dart';
 import '../../providers/favourites_provider.dart';
 import '../../providers/notice_provider.dart';
 import '../../providers/sources_provider.dart';
+import '../../services/external_track_service.dart';
 import '../../services/track_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/tappable.dart';
@@ -41,23 +42,35 @@ class _TrackPageState extends ConsumerState<TrackPage> {
       _liked = !_liked;
       _likes += _liked ? 1 : -1;
     });
-    if (track.apiId == null) return;
-    final res = await TrackService.toggleLike(track.apiId!);
+
+    late final ({bool ok, bool isLiked, int likes}) res;
+    if (track.needsStream) {
+      final key = track.externalLikeKey;
+      if (key == null) {
+        setState(() { _liked = !_liked; _likes += _liked ? 1 : -1; });
+        return;
+      }
+      res = await ExternalTrackService.toggleLike(
+        platform: key.platform,
+        externalId: key.externalId,
+        title: track.title,
+        artist: track.artist,
+      );
+    } else {
+      if (track.apiId == null) {
+        setState(() { _liked = !_liked; _likes += _liked ? 1 : -1; });
+        return;
+      }
+      res = await TrackService.toggleLike(track.apiId!);
+    }
+
     if (!mounted) return;
     if (!res.ok) {
-      // Rollback si l'API a échoué
-      setState(() {
-        _liked = !_liked;
-        _likes += _liked ? 1 : -1;
-      });
+      setState(() { _liked = !_liked; _likes += _liked ? 1 : -1; });
       return;
     }
-    // Synchronise l'affichage avec les valeurs exactes du backend
-    setState(() {
-      _liked = res.isLiked;
-      _likes = res.likes;
-    });
-    ref.invalidate(favouritesProvider); // la librairie se met à jour
+    setState(() { _liked = res.isLiked; _likes = res.likes; });
+    if (!track.needsStream) ref.invalidate(favouritesProvider);
   }
 
   @override

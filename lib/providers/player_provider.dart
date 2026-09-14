@@ -8,6 +8,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:smtc_windows/smtc_windows.dart' hide RepeatMode;
 import '../config/api_config.dart';
 import '../models/track.dart';
+import '../services/external_track_service.dart';
 import '../services/track_service.dart';
 import '../services/radio_service.dart';
 import '../services/stream_service.dart';
@@ -807,18 +808,43 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
-  /// Like optimiste + appel API (cf. React useLikeTrack → toggleLikeTrack(id)).
+  /// Like optimiste + appel API.
+  /// Track externe (needsStream) → POST /api/external-tracks/likes.
+  /// Track cataloguée (apiId) → POST /api/tracks/{id}/likes.
   Future<void> toggleLike() async {
     final t = state.currentTrack;
+    if (t == null) return;
     state = state.copyWith(isLiked: !state.isLiked);
-    if (t?.apiId == null) return;
-    final res = await TrackService.toggleLike(t!.apiId!);
+
+    if (t.needsStream) {
+      final key = t.externalLikeKey;
+      if (key == null) {
+        state = state.copyWith(isLiked: !state.isLiked); // rollback
+        return;
+      }
+      final res = await ExternalTrackService.toggleLike(
+        platform: key.platform,
+        externalId: key.externalId,
+        title: t.title,
+        artist: t.artist,
+      );
+      if (!res.ok) {
+        state = state.copyWith(isLiked: !state.isLiked);
+      } else {
+        state = state.copyWith(isLiked: res.isLiked);
+      }
+      return;
+    }
+
+    if (t.apiId == null) {
+      state = state.copyWith(isLiked: !state.isLiked); // rollback
+      return;
+    }
+    final res = await TrackService.toggleLike(t.apiId!);
     if (!res.ok) {
-      // Rollback si l'API a échoué
       state = state.copyWith(isLiked: !state.isLiked);
       return;
     }
-    // Synchronise avec l'état réel + rafraîchit la librairie
     state = state.copyWith(isLiked: res.isLiked);
     _ref.invalidate(favouritesProvider);
   }
