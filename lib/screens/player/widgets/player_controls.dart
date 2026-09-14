@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../widgets/tappable.dart';
 
 /// Barre supérieure du player : poignée de glissement + fermeture + file d'attente.
 class PlayerTopBar extends StatelessWidget {
@@ -110,7 +111,7 @@ class _ActionItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Column(
@@ -144,7 +145,7 @@ class PlayerControlButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: enabled ? onTap : null,
       child: Icon(icon, color: enabled ? Colors.white : Colors.white24, size: 34),
     );
@@ -161,7 +162,7 @@ class PlayerPlayButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: onTap,
       child: Container(
         width: 74,

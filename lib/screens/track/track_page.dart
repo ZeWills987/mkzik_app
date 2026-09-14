@@ -11,6 +11,7 @@ import '../../providers/notice_provider.dart';
 import '../../providers/sources_provider.dart';
 import '../../services/track_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/tappable.dart';
 import '../../widgets/track_cover.dart';
 import '../../widgets/notice_banner.dart';
 import '../../widgets/mini_player.dart';
@@ -145,7 +146,7 @@ class _TrackPageState extends ConsumerState<TrackPage> {
                   const SizedBox(height: 8),
 
                   // Artiste cliquable
-                  GestureDetector(
+                  Tappable(
                     onTap: track.artist.isEmpty ? null : () => ProfileScreen.open(context, track.artist),
                     child: Text(track.artist,
                         style: TextStyle(color: accentLight, fontSize: 15, fontWeight: FontWeight.w600)),
@@ -169,7 +170,7 @@ class _TrackPageState extends ConsumerState<TrackPage> {
 
                   const SizedBox(height: 28),
                   // Bouton Écouter
-                  GestureDetector(
+                  Tappable(
                     onTap: () => ref.read(playerProvider.notifier).playTrack(track, queue: [track]),
                     child: Container(
                       width: 200, height: 54,
@@ -417,7 +418,7 @@ class _ActionCircle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: GestureDetector(
+      child: Tappable(
         onTap: onTap,
         child: Column(
           mainAxisSize: MainAxisSize.min,

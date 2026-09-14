@@ -10,6 +10,7 @@ import '../../providers/profile_provider.dart';
 import '../../services/profile_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/media.dart';
+import '../../widgets/tappable.dart';
 import '../auth/auth_widgets.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
@@ -254,7 +255,7 @@ class _PhotosEditor extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           // Bannière
-          GestureDetector(
+          Tappable(
             onTap: onPickBackground,
             child: SizedBox(
               height: 160,
@@ -290,7 +291,7 @@ class _PhotosEditor extends StatelessWidget {
           Positioned(
             bottom: 0, left: 0, right: 0,
             child: Center(
-              child: GestureDetector(
+              child: Tappable(
                 onTap: onPickAvatar,
                 child: Container(
                   padding: const EdgeInsets.all(3),

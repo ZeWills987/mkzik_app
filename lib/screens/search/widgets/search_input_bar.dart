@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../theme/app_theme.dart';
+import '../../../widgets/tappable.dart';
 
 /// Barre de recherche en haut de l'écran : champ texte + bouton effacer.
 class SearchInputBar extends StatelessWidget {
@@ -54,7 +55,7 @@ class SearchInputBar extends StatelessWidget {
               ),
             ),
             if (hasText)
-              GestureDetector(
+              Tappable(
                 onTap: onClear,
                 child: Container(
                   width: 22,

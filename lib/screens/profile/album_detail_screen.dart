@@ -5,6 +5,7 @@ import '../../models/album.dart';
 import '../../providers/albums_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/tappable.dart';
 import '../../widgets/track_actions.dart';
 import '../../widgets/mini_player.dart';
 
@@ -286,7 +287,7 @@ class _PlayButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
