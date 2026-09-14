@@ -112,7 +112,11 @@ class TrackService {
   /// Route volontairement hors du namespace `tracks` pour éviter la collision
   /// avec le wildcard `GET api/tracks/{username}`.
   static Future<List<Track>> getHistoryPlay({int limit = 10, int offset = 0}) async {
-    final res = await ApiClient.getUri(_api('api/history/tracks', {'limit': '$limit', 'offset': '$offset'}));
+    final res = await ApiClient.getUri(_api('api/history/tracks', {
+      'limit': '$limit',
+      'offset': '$offset',
+      'include_external': '1',
+    }));
     return _tracksFrom(res.getOrThrow());
   }
 

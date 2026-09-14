@@ -292,6 +292,7 @@ void showTrackActionsSheet(BuildContext context, WidgetRef ref, Track track) {
             externalId: key.externalId,
             title: track.title,
             artist: track.artist,
+            thumbnailUrl: track.coverUrl.isNotEmpty ? track.coverUrl : null,
           );
         } else {
           if (track.apiId == null) {

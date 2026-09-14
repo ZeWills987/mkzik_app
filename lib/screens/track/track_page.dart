@@ -55,6 +55,7 @@ class _TrackPageState extends ConsumerState<TrackPage> {
         externalId: key.externalId,
         title: track.title,
         artist: track.artist,
+        thumbnailUrl: track.coverUrl.isNotEmpty ? track.coverUrl : null,
       );
     } else {
       if (track.apiId == null) {

@@ -15,12 +15,14 @@ class ExternalTrackService {
     required String externalId,
     String? title,
     String? artist,
+    String? thumbnailUrl,
   }) async {
     final body = <String, dynamic>{
       'platform': platform,
       'external_id': externalId,
       if (title != null && title.isNotEmpty) 'title': title,
       if (artist != null && artist.isNotEmpty) 'artist_name': artist,
+      if (thumbnailUrl != null && thumbnailUrl.isNotEmpty) 'thumbnail_url': thumbnailUrl,
     };
     final res = await ApiClient.postUri(_api('api/external-tracks/likes'), body: body);
     return switch (res) {

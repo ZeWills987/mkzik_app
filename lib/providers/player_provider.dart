@@ -827,6 +827,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         externalId: key.externalId,
         title: t.title,
         artist: t.artist,
+        thumbnailUrl: t.coverUrl.isNotEmpty ? t.coverUrl : null,
       );
       if (!res.ok) {
         state = state.copyWith(isLiked: !state.isLiked);
