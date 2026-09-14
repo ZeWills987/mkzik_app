@@ -10,6 +10,7 @@ import '../../providers/player_provider.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/imports_provider.dart';
 import '../../providers/paginated_tracks_provider.dart';
+import '../../config/api_config.dart';
 import '../../widgets/track_card.dart';
 import '../../widgets/track_cover.dart';
 import '../../theme/app_theme.dart';
@@ -24,6 +25,8 @@ class HomeScreen extends ConsumerWidget {
     final newsAsync = ref.watch(newsFeedProvider);
     final historyAsync = ref.watch(historyPlayProvider);
     final importsState = ref.watch(importsProvider);
+    final ytAsync = ApiConfig.externalStream ? ref.watch(youtubeSuggestionsProvider) : null;
+    final scAsync = ApiConfig.externalStream ? ref.watch(soundcloudSuggestionsProvider) : null;
 
     // Données affichées (le repli démo éventuel est géré dans les providers)
     final tracks = newsAsync.maybeWhen(data: (d) => d, orElse: () => const <Track>[]);
@@ -41,6 +44,10 @@ class HomeScreen extends ConsumerWidget {
         onRefresh: () async {
           ref.invalidate(newsFeedProvider);
           ref.invalidate(historyPlayProvider);
+          if (ApiConfig.externalStream) {
+            ref.invalidate(youtubeSuggestionsProvider);
+            ref.invalidate(soundcloudSuggestionsProvider);
+          }
           await Future.wait([
             ref.read(newsFeedProvider.future),
             ref.read(historyPlayProvider.future),
@@ -120,6 +127,24 @@ class HomeScreen extends ConsumerWidget {
                           ),
               ),
             ),
+            // Suggestions YouTube Music (uniquement si streaming externe activé)
+            if (ytAsync != null) ..._suggestionsSection(
+              context,
+              ref,
+              title: 'Pour vous',
+              icon: Icons.music_video_outlined,
+              tracksAsync: ytAsync,
+              pagedProvider: youtubeSuggestionsPagedProvider,
+            ),
+            // Top SoundCloud (uniquement si streaming externe activé)
+            if (scAsync != null) ..._suggestionsSection(
+              context,
+              ref,
+              title: 'Top SoundCloud',
+              icon: Icons.cloud_outlined,
+              tracksAsync: scAsync,
+              pagedProvider: soundcloudSuggestionsPagedProvider,
+            ),
             if (importTracks.isNotEmpty || isLoadingImports) ...[
               SliverToBoxAdapter(
                 child: _SectionHeader(
@@ -155,6 +180,44 @@ class HomeScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+// Génère header + liste pour une section de suggestions (YouTube / SoundCloud)
+List<Widget> _suggestionsSection(
+  BuildContext context,
+  WidgetRef ref, {
+  required String title,
+  required IconData icon,
+  required AsyncValue<List<Track>> tracksAsync,
+  required AutoDisposeStateNotifierProvider<PagedTracksNotifier, PagedTracksState> pagedProvider,
+}) {
+  final tracks = tracksAsync.maybeWhen(data: (d) => d, orElse: () => const <Track>[]);
+  final loading = tracksAsync.isLoading;
+  if (!loading && tracks.isEmpty) return const [];
+  return [
+    SliverToBoxAdapter(
+      child: _SectionHeader(
+        title: title,
+        onSeeAll: tracks.isNotEmpty
+            ? () => TrackListScreen.open(context, title: title, provider: pagedProvider)
+            : null,
+      ),
+    ),
+    SliverToBoxAdapter(
+      child: SizedBox(
+        height: 250,
+        child: loading
+            ? const _LoadingRow(height: 250)
+            : ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: tracks.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 14),
+                itemBuilder: (_, i) => TrackCard(track: tracks[i], queue: tracks),
+              ),
+      ),
+    ),
+  ];
 }
 
 // Indicateur de chargement horizontal simple

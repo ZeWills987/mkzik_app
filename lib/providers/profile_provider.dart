@@ -3,37 +3,28 @@ import '../config/api_config.dart';
 import '../models/profile.dart';
 import '../models/track.dart';
 import '../services/profile_service.dart';
+import 'paginated_tracks_provider.dart';
 
-/// Données agrégées d'une page profil.
-class ProfileData {
-  final Profile profile;
-  final List<Track> tracks;
-
-  const ProfileData({required this.profile, required this.tracks});
-
-  /// Total des écoutes = somme des `listen` des Ziks.
-  int get totalPlays => tracks.fold(0, (sum, t) => sum + t.listen);
-}
-
-/// Charge profil + Ziks en parallèle.
-/// En production (DEMO=false), un profil introuvable lève une erreur (état d'erreur réel).
-final profileProvider = FutureProvider.family<ProfileData, String>((ref, username) async {
-  final profileFuture = ProfileService.getProfile(username);
-  final tracksFuture = ProfileService.getUserTracks(username);
-
-  final profile = await profileFuture;
-  final tracks = await tracksFuture;
-
+/// Charge le profil d'un utilisateur.
+/// En production (DEMO=false), un profil introuvable lève une erreur.
+final profileProvider = FutureProvider.family<Profile, String>((ref, username) async {
+  final profile = await ProfileService.getProfile(username);
   if (profile == null) {
-    if (ApiConfig.useDemoData) {
-      return ProfileData(profile: _demoProfile(username), tracks: tracks.isEmpty ? kDemoTracks : tracks);
-    }
+    if (ApiConfig.useDemoData) return _demoProfile(username);
     throw Exception('Profil introuvable');
   }
+  return profile;
+});
 
-  return ProfileData(
-    profile: profile,
-    tracks: (tracks.isEmpty && ApiConfig.useDemoData) ? kDemoTracks : tracks,
+/// Ziks d'un profil, paginés au scroll.
+/// autoDispose → libéré quand on quitte l'écran profil.
+final profileTracksProvider =
+    StateNotifierProvider.autoDispose.family<PagedTracksNotifier, PagedTracksState, String>((ref, username) {
+  return PagedTracksNotifier(
+    ({required int limit, required int offset}) {
+      return ProfileService.getUserTracks(username, limit: limit, offset: offset);
+    },
+    pageSize: 20,
   );
 });
 

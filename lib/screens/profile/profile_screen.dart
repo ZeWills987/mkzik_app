@@ -6,6 +6,7 @@ import '../../models/track.dart';
 import '../../models/track_visuals.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/profile_provider.dart';
+import '../../providers/paginated_tracks_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/notice_provider.dart';
 import '../../providers/albums_provider.dart';
@@ -52,7 +53,8 @@ class ProfileScreen extends ConsumerWidget {
 
     final pushed = username != null;
     final isOwn = resolved == authUsername;
-    final async = ref.watch(profileProvider(resolved));
+    final profileAsync = ref.watch(profileProvider(resolved));
+    final tracks = ref.watch(profileTracksProvider(resolved));
     final hasTrack = ref.watch(playerProvider.select((s) => s.currentTrack != null));
 
     return Scaffold(
@@ -66,58 +68,93 @@ class ProfileScreen extends ConsumerWidget {
               ),
             )
           : null,
-      body: async.when(
+      body: profileAsync.when(
         loading: () => const Center(child: CircularProgressIndicator(color: kAccent)),
         error: (err, stack) => const Center(
           child: Text('Erreur de chargement', style: TextStyle(color: kTextSecondary)),
         ),
-        data: (data) => RefreshIndicator(
-          color: kAccent,
-          backgroundColor: kSurface,
-          onRefresh: () async {
-            ref.invalidate(profileProvider(resolved));
-            await ref.read(profileProvider(resolved).future);
+        data: (profile) => NotificationListener<ScrollNotification>(
+          onNotification: (n) {
+            if (n.metrics.pixels >= n.metrics.maxScrollExtent - 400) {
+              ref.read(profileTracksProvider(resolved).notifier).loadMore();
+            }
+            return false;
           },
-          child: CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(
-                child: _Hero(
-                  profile: data.profile,
-                  isOwn: isOwn,
-                  showBack: pushed,
-                  onBack: () => Navigator.of(context).maybePop(),
-                  onEdit: () => EditProfileScreen.open(context, data.profile, resolved),
-                  onMenuAction: isOwn && !pushed
-                      ? (action) => _handleMenu(context, ref, action,
-                            onEdit: () => EditProfileScreen.open(context, data.profile, resolved))
-                      : null,
+          child: RefreshIndicator(
+            color: kAccent,
+            backgroundColor: kSurface,
+            onRefresh: () async {
+              ref.invalidate(profileProvider(resolved));
+              await Future.wait([
+                ref.read(profileProvider(resolved).future),
+                ref.read(profileTracksProvider(resolved).notifier).refresh(),
+              ]);
+            },
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: _Hero(
+                    profile: profile,
+                    isOwn: isOwn,
+                    showBack: pushed,
+                    onBack: () => Navigator.of(context).maybePop(),
+                    onEdit: () => EditProfileScreen.open(context, profile, resolved),
+                    onMenuAction: isOwn && !pushed
+                        ? (action) => _handleMenu(context, ref, action,
+                              onEdit: () => EditProfileScreen.open(context, profile, resolved))
+                        : null,
+                  ),
                 ),
-              ),
-              SliverToBoxAdapter(child: _StatsCard(data: data)),
-              if (data.profile.description.isNotEmpty)
-                SliverToBoxAdapter(child: _Bio(text: data.profile.description)),
-              SliverToBoxAdapter(
-                child: _AlbumsSection(username: resolved),
-              ),
-              SliverToBoxAdapter(child: _ZiksHeader(count: data.tracks.length)),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, i) {
-                    final track = data.tracks[i];
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: TrackResultRow(
-                        track: track,
-                        onTap: () => ref.read(playerProvider.notifier).playTrack(track, queue: data.tracks),
-                        onMenu: () => showTrackActionsSheet(context, ref, track),
+                SliverToBoxAdapter(child: _StatsCard(profile: profile)),
+                if (profile.description.isNotEmpty)
+                  SliverToBoxAdapter(child: _Bio(text: profile.description)),
+                SliverToBoxAdapter(child: _AlbumsSection(username: resolved)),
+                SliverToBoxAdapter(
+                  child: _ZiksHeader(count: tracks.tracks.length, hasMore: tracks.hasMore),
+                ),
+                if (tracks.initialLoading)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 40),
+                      child: Center(child: CircularProgressIndicator(color: kAccent)),
+                    ),
+                  )
+                else
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) {
+                        final track = tracks.tracks[i];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: TrackResultRow(
+                            track: track,
+                            onTap: () => ref
+                                .read(playerProvider.notifier)
+                                .playTrack(track, queue: tracks.tracks),
+                            onMenu: () => showTrackActionsSheet(context, ref, track),
+                          ),
+                        );
+                      },
+                      childCount: tracks.tracks.length,
+                      addAutomaticKeepAlives: false,
+                    ),
+                  ),
+                if (tracks.loadingMore)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Center(
+                        child: SizedBox(
+                          width: 22, height: 22,
+                          child: CircularProgressIndicator(color: kAccent, strokeWidth: 2.2),
+                        ),
                       ),
-                    );
-                  },
-                  childCount: data.tracks.length,
-                ),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 24)),
-            ],
+                    ),
+                  ),
+                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              ],
+            ),
           ),
         ),
       ),
@@ -457,12 +494,12 @@ class _Avatar extends StatelessWidget {
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
 
-class _StatsCard extends StatelessWidget {
-  final ProfileData data;
-  const _StatsCard({required this.data});
+class _StatsCard extends ConsumerWidget {
+  final Profile profile;
+  const _StatsCard({required this.profile});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.symmetric(vertical: 18),
@@ -473,11 +510,9 @@ class _StatsCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _Stat(value: data.profile.nbFollowers, label: 'Followers'),
+          _Stat(value: profile.nbFollowers, label: 'Followers'),
           _divider(),
-          _Stat(value: data.profile.nbFollowing, label: 'Suivis'),
-          _divider(),
-          _Stat(value: data.totalPlays, label: 'Écoutes'),
+          _Stat(value: profile.nbFollowing, label: 'Suivis'),
         ],
       ),
     );
@@ -532,10 +567,12 @@ class _Bio extends StatelessWidget {
 
 class _ZiksHeader extends StatelessWidget {
   final int count;
-  const _ZiksHeader({required this.count});
+  final bool hasMore;
+  const _ZiksHeader({required this.count, this.hasMore = false});
 
   @override
   Widget build(BuildContext context) {
+    final label = count == 0 ? '' : (hasMore ? '$count+' : '$count');
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 28, 20, 8),
       child: Row(
@@ -543,12 +580,14 @@ class _ZiksHeader extends StatelessWidget {
         children: [
           const Text('Ziks',
               style: TextStyle(color: kTextPrimary, fontSize: 20, fontWeight: FontWeight.w800)),
-          const SizedBox(width: 8),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 2),
-            child: Text('$count',
-                style: const TextStyle(color: kTextSecondary, fontSize: 14, fontWeight: FontWeight.w600)),
-          ),
+          if (label.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Text(label,
+                  style: const TextStyle(color: kTextSecondary, fontSize: 14, fontWeight: FontWeight.w600)),
+            ),
+          ],
         ],
       ),
     );
