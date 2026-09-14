@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../widgets/tappable.dart';
 import '../../models/playlist.dart';
 import '../../models/track.dart';
 import '../../providers/favourites_provider.dart';
@@ -373,7 +374,7 @@ class _Tabs extends StatelessWidget {
       child: Row(
         children: List.generate(_labels.length, (i) {
           final active = current == i;
-          return GestureDetector(
+          return Tappable(
             onTap: () => onTap(i),
             behavior: HitTestBehavior.opaque,
             child: Padding(
@@ -411,7 +412,7 @@ class _AddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(

@@ -26,6 +26,7 @@ class HomeScreen extends ConsumerWidget {
     final historyAsync = ref.watch(historyPlayProvider);
     final importsState = ref.watch(importsProvider);
     final ytAsync = ApiConfig.externalStream ? ref.watch(youtubeSuggestionsProvider) : null;
+    final ytTopAsync = ApiConfig.externalStream ? ref.watch(youtubeTopProvider) : null;
     final scAsync = ApiConfig.externalStream ? ref.watch(soundcloudSuggestionsProvider) : null;
 
     // Données affichées (le repli démo éventuel est géré dans les providers)
@@ -46,6 +47,7 @@ class HomeScreen extends ConsumerWidget {
           ref.invalidate(historyPlayProvider);
           if (ApiConfig.externalStream) {
             ref.invalidate(youtubeSuggestionsProvider);
+            ref.invalidate(youtubeTopProvider);
             ref.invalidate(soundcloudSuggestionsProvider);
           }
           await Future.wait([
@@ -136,6 +138,15 @@ class HomeScreen extends ConsumerWidget {
               tracksAsync: ytAsync,
               pagedProvider: youtubeSuggestionsPagedProvider,
             ),
+            // Top YouTube Music — charts mondiaux (uniquement si streaming externe activé)
+            if (ytTopAsync != null) ..._suggestionsSection(
+              context,
+              ref,
+              title: 'Top YouTube Music',
+              icon: Icons.bar_chart_rounded,
+              tracksAsync: ytTopAsync,
+              pagedProvider: youtubeTopPagedProvider,
+            ),
             // Top SoundCloud (uniquement si streaming externe activé)
             if (scAsync != null) ..._suggestionsSection(
               context,
@@ -212,7 +223,7 @@ List<Widget> _suggestionsSection(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 itemCount: tracks.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 14),
+                separatorBuilder: (_, _) => const SizedBox(width: 14),
                 itemBuilder: (_, i) => TrackCard(track: tracks[i], queue: tracks),
               ),
       ),
@@ -396,7 +407,7 @@ class _FeaturedBanner extends ConsumerWidget {
                       ),
                       const SizedBox(height: 14),
                       // Bouton Écouter
-                      GestureDetector(
+                      Tappable(
                         onTap: () => ref.read(playerProvider.notifier).playTrack(track),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -520,7 +531,7 @@ class _SectionHeader extends StatelessWidget {
           Text(title, style: const TextStyle(color: kTextPrimary, fontSize: 20, fontWeight: FontWeight.w800)),
           const Spacer(),
           if (onSeeAll != null)
-            GestureDetector(
+            Tappable(
               onTap: onSeeAll,
               child: const Text('Voir tout', style: TextStyle(color: kAccent, fontSize: 13, fontWeight: FontWeight.w600)),
             ),

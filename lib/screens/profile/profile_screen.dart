@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../widgets/tappable.dart';
 import '../../models/profile.dart';
 import '../../models/track.dart';
 import '../../models/track_visuals.dart';
@@ -381,7 +382,7 @@ class _CircleIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.all(8),
@@ -436,7 +437,7 @@ class _FollowButtonState extends ConsumerState<_FollowButton> {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: _toggle,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 10),
@@ -651,7 +652,7 @@ class _AlbumCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: () => AlbumDetailScreen.open(context, album),
       child: Container(
         width: 130,
@@ -697,7 +698,7 @@ class _OutlineButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),

@@ -126,6 +126,20 @@ final youtubeSuggestionsPagedProvider =
   );
 });
 
+/// "Top YouTube Music" paginé — une seule page (charts mondiaux).
+final youtubeTopPagedProvider =
+    StateNotifierProvider.autoDispose<PagedTracksNotifier, PagedTracksState>((ref) {
+  bool fetched = false;
+  return PagedTracksNotifier(
+    ({required int limit, required int offset}) async {
+      if (fetched || offset > 0) return [];
+      fetched = true;
+      return SuggestionService.youtubeTop(limit: 30);
+    },
+    pageSize: 30,
+  );
+});
+
 /// "Suggestions SoundCloud" paginées — une seule page.
 final soundcloudSuggestionsPagedProvider =
     StateNotifierProvider.autoDispose<PagedTracksNotifier, PagedTracksState>((ref) {

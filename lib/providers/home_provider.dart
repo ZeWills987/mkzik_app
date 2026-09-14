@@ -35,6 +35,11 @@ final soundcloudSuggestionsProvider = FutureProvider<List<Track>>((ref) async {
   return SuggestionService.soundcloudTop(limit: 16);
 });
 
+/// "Top YouTube Music" → charts mondiaux YTMusic (`/suggestions/youtube/top`).
+final youtubeTopProvider = FutureProvider<List<Track>>((ref) async {
+  return SuggestionService.youtubeTop(limit: 16);
+});
+
 /// "Artistes recommandés" → `GET api/trending`.
 final trendingUsersProvider = FutureProvider<List<SearchUser>>((ref) async {
   final users = await TrackService.getTrendingUsers(limit: 12);

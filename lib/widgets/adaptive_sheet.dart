@@ -28,17 +28,19 @@ Future<T?> showAdaptiveSheet<T>({
     );
   }
 
-  final maxHeight = MediaQuery.of(context).size.height * 0.75;
   return showDialog<T>(
     context: context,
-    builder: (ctx) => Dialog(
-      backgroundColor: kSheetBg,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 440, maxHeight: maxHeight),
-        child: builder(ctx),
-      ),
-    ),
+    builder: (ctx) {
+      final maxHeight = MediaQuery.of(ctx).size.height * 0.75;
+      return Dialog(
+        backgroundColor: kSheetBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 440, maxHeight: maxHeight),
+          child: builder(ctx),
+        ),
+      );
+    },
   );
 }

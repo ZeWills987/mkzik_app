@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'search_suggestions.dart' show SectionLabel;
+import '../../../widgets/tappable.dart';
 
 /// Vue par défaut (champ vide) : grille de genres à explorer.
 /// [onGenre] est appelé avec le libellé du genre tapé (→ lance une recherche).
@@ -48,7 +49,7 @@ class _GenreCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Tappable(
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
