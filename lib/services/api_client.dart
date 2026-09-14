@@ -52,6 +52,27 @@ class ApiClient {
   static Future<ApiResult<dynamic>> getUri(Uri uri, {bool auth = true, Duration? timeout}) =>
       _send('GET', uri, auth: auth, timeout: timeout);
 
+  /// Variante de [getUri] qui retourne aussi les headers de la réponse.
+  /// Utile pour lire des métadonnées HTTP comme `X-Total-Count`.
+  static Future<(ApiResult<dynamic>, Map<String, String>)> getUriWithHeaders(
+    Uri uri, {
+    bool auth = true,
+    Duration? timeout,
+  }) async {
+    try {
+      final headers = _headers(auth);
+      final t = timeout ?? _timeout;
+      final res = await _client.get(uri, headers: headers).timeout(t);
+      return (_handle('GET', uri, res, auth: auth), res.headers);
+    } on TimeoutException {
+      _log('GET', uri, 'délai dépassé');
+      return (const Err('Délai dépassé, réessaie', statusCode: 408), <String, String>{});
+    } catch (e) {
+      _log('GET', uri, e);
+      return (const Err('Connexion au serveur impossible'), <String, String>{});
+    }
+  }
+
   static Future<ApiResult<dynamic>> postUri(Uri uri, {Object? body, bool auth = true}) =>
       _send('POST', uri, body: body, auth: auth);
 

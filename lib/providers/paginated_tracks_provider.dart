@@ -43,12 +43,26 @@ class PagedTracksState {
 
 /// Charge les tracks par pages de [pageSize], pour un affichage dynamique
 /// au scroll (évite de tout charger d'un coup quand il y a beaucoup de titres).
+///
+/// [totalGetter] est optionnel : quand il retourne un entier (ex. depuis
+/// `X-Total-Count`), la pagination s'arrête exactement au bon moment sans
+/// requête vide de trop. Sans lui, on se rabat sur l'heuristique
+/// `page.length >= pageSize`.
 class PagedTracksNotifier extends StateNotifier<PagedTracksState> {
   final TrackPageFetcher _fetch;
   final int pageSize;
+  final int? Function()? _getTotal;
 
-  PagedTracksNotifier(this._fetch, {this.pageSize = 20}) : super(const PagedTracksState()) {
+  PagedTracksNotifier(this._fetch, {this.pageSize = 20, int? Function()? totalGetter})
+      : _getTotal = totalGetter,
+        super(const PagedTracksState()) {
     loadInitial();
+  }
+
+  bool _hasMore(List<Track> allTracks, List<Track> lastPage) {
+    final total = _getTotal?.call();
+    if (total != null) return allTracks.length < total;
+    return lastPage.length >= pageSize;
   }
 
   /// Premier chargement (ou rechargement complet via pull-to-refresh).
@@ -64,7 +78,7 @@ class PagedTracksNotifier extends StateNotifier<PagedTracksState> {
       state = PagedTracksState(
         tracks: page,
         initialLoading: false,
-        hasMore: page.length >= pageSize,
+        hasMore: _hasMore(page, page),
       );
     } catch (e) {
       state = PagedTracksState(initialLoading: false, hasMore: false, error: e);
@@ -77,10 +91,11 @@ class PagedTracksNotifier extends StateNotifier<PagedTracksState> {
     state = state.copyWith(loadingMore: true);
     try {
       final page = await _fetch(limit: pageSize, offset: state.tracks.length);
+      final allTracks = [...state.tracks, ...page];
       state = state.copyWith(
-        tracks: [...state.tracks, ...page],
+        tracks: allTracks,
         loadingMore: false,
-        hasMore: page.length >= pageSize,
+        hasMore: _hasMore(allTracks, page),
       );
     } catch (_) {
       // On stoppe la pagination en cas d'erreur (pas de boucle de retry)

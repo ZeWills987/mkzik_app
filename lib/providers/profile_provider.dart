@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/api_config.dart';
 import '../models/profile.dart';
-import '../models/track.dart';
 import '../services/profile_service.dart';
 import 'paginated_tracks_provider.dart';
 
@@ -20,11 +19,15 @@ final profileProvider = FutureProvider.family<Profile, String>((ref, username) a
 /// autoDispose → libéré quand on quitte l'écran profil.
 final profileTracksProvider =
     StateNotifierProvider.autoDispose.family<PagedTracksNotifier, PagedTracksState, String>((ref, username) {
+  int? total;
   return PagedTracksNotifier(
-    ({required int limit, required int offset}) {
-      return ProfileService.getUserTracks(username, limit: limit, offset: offset);
+    ({required int limit, required int offset}) async {
+      final (tracks, t) = await ProfileService.getUserTracks(username, limit: limit, offset: offset);
+      if (t != null) total = t;
+      return tracks;
     },
     pageSize: 20,
+    totalGetter: () => total,
   );
 });
 

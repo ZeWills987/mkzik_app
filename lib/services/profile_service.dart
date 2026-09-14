@@ -16,15 +16,18 @@ class ProfileService {
   }
 
   /// `GET api/tracks/{username}?limit=&offset=` → Ziks de l'utilisateur.
-  /// Sans limit (ou 0) le backend renvoie tout (rétrocompatible).
-  static Future<List<Track>> getUserTracks(String username, {int limit = 0, int offset = 0}) async {
-    final res = await ApiClient.getUri(_api(
+  /// Retourne (tracks, total) : le total vient du header `X-Total-Count`
+  /// envoyé par Symfony pour permettre une pagination précise.
+  static Future<(List<Track>, int?)> getUserTracks(String username, {int limit = 0, int offset = 0}) async {
+    final (res, headers) = await ApiClient.getUriWithHeaders(_api(
       'api/tracks/${Uri.encodeComponent(username)}',
       limit > 0 ? {'limit': '$limit', 'offset': '$offset'} : null,
     ));
     final data = res.orElse(null);
     final list = data is List ? data : (data is Map ? (data['tracks'] as List? ?? const []) : const []);
-    return list.whereType<Map<String, dynamic>>().map(Track.fromJson).toList();
+    final tracks = list.whereType<Map<String, dynamic>>().map(Track.fromJson).toList();
+    final total = int.tryParse(headers['x-total-count'] ?? '');
+    return (tracks, total);
   }
 
   /// `POST api/follow` body {username} → bascule le suivi.
