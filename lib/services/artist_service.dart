@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'dart:io';
 import '../config/api_config.dart';
 import '../models/track.dart';
 import 'api_client.dart';
@@ -61,17 +61,22 @@ class ArtistService {
     };
     final uri = Uri.parse('${ApiConfig.pythonUrl}artist/tracks/stream').replace(queryParameters: params);
 
-    final client = http.Client();
+    final httpClient = HttpClient();
+    httpClient.connectionTimeout = const Duration(seconds: 10);
     try {
-      final request = http.Request('GET', uri);
-      if (ApiConfig.token != null) request.headers['Authorization'] = 'Bearer ${ApiConfig.token}';
-      final response = await client.send(request);
+      final request = await httpClient.getUrl(uri);
+      request.headers.add('Accept', 'text/event-stream');
+      request.headers.add('Cache-Control', 'no-cache');
+      if (ApiConfig.token != null) {
+        request.headers.add('Authorization', 'Bearer ${ApiConfig.token}');
+      }
+      final response = await request.close();
 
       final accumulated = <Track>[];
       ArtistPreview? artist;
       final source = url.contains('soundcloud') ? 'sc' : 'ytm';
 
-      await for (final line in response.stream.transform(utf8.decoder).transform(const LineSplitter())) {
+      await for (final line in response.transform(utf8.decoder).transform(const LineSplitter())) {
         if (!line.startsWith('data: ')) continue;
         final payload = line.substring(6).trim();
         if (payload.isEmpty) continue;
@@ -93,7 +98,7 @@ class ArtistService {
         } catch (_) {}
       }
     } finally {
-      client.close();
+      httpClient.close();
     }
   }
 
