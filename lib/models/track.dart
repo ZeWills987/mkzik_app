@@ -173,7 +173,7 @@ class Track {
   /// Pour SoundCloud on la dérive de la page_url si absente.
   static String _resolveArtistUrl(Map<String, dynamic> j) {
     final explicit = (j['artist_url'] ?? j['channel_url'] ?? '').toString();
-    if (explicit.isNotEmpty) return explicit;
+    if (explicit.isNotEmpty && explicit != '#') return explicit;
     final src = (j['source'] ?? '').toString();
     if (src == 'sc') {
       final pageUrl = (j['url'] ?? j['page_url'] ?? '').toString();
