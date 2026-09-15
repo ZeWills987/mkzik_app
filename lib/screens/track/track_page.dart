@@ -166,7 +166,9 @@ class _TrackPageState extends ConsumerState<TrackPage> {
                         ? null
                         : track.artistUrl.isNotEmpty
                             ? () => ArtistTracksScreen.open(context, artistUrl: track.artistUrl, artistName: track.artist)
-                            : () => ProfileScreen.open(context, track.artist),
+                            : track.isExternal
+                                ? null
+                                : () => ProfileScreen.open(context, track.artist),
                     child: Text(track.artist,
                         style: TextStyle(color: accentLight, fontSize: 15, fontWeight: FontWeight.w600)),
                   ),
