@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/artist_provider.dart';
 import '../../providers/player_provider.dart';
-import '../../services/artist_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/mini_player.dart';
 import '../../widgets/notice_banner.dart';
@@ -78,91 +77,24 @@ class ArtistTracksScreen extends ConsumerWidget {
                 ),
               ),
             ),
-            data: (result) {
-              final tracks = result.tracks;
-              final artist = result.artist;
-              return SliverMainAxisGroup(
-                slivers: [
-                  if (artist != null)
-                    SliverToBoxAdapter(child: _ArtistHeader(artist: artist)),
-                  if (tracks.isEmpty)
-                    const SliverFillRemaining(
-                      child: Center(
-                        child: Text('Aucune zik trouvée', style: TextStyle(color: kTextSecondary)),
-                      ),
-                    )
-                  else
-                    SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (_, i) => TrackTile(track: tracks[i], queue: tracks),
-                          childCount: tracks.length,
-                        ),
+            data: (result) => result.tracks.isEmpty
+                ? const SliverFillRemaining(
+                    child: Center(
+                      child: Text('Aucune zik trouvée', style: TextStyle(color: kTextSecondary)),
+                    ),
+                  )
+                : SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (_, i) => TrackTile(track: result.tracks[i], queue: result.tracks),
+                        childCount: result.tracks.length,
                       ),
                     ),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ArtistHeader extends StatelessWidget {
-  final ArtistPreview artist;
-  const _ArtistHeader({required this.artist});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-      child: Row(
-        children: [
-          // Avatar
-          ClipOval(
-            child: artist.thumbnail.isNotEmpty
-                ? Image.network(
-                    artist.thumbnail,
-                    width: 64, height: 64,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _avatarFallback(),
-                  )
-                : _avatarFallback(),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  artist.name.isNotEmpty ? artist.name : artistName,
-                  style: const TextStyle(color: kTextPrimary, fontSize: 18, fontWeight: FontWeight.w800),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (artist.subscribers.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    artist.subscribers,
-                    style: const TextStyle(color: kTextSecondary, fontSize: 13),
                   ),
-                ],
-              ],
-            ),
           ),
         ],
       ),
     );
   }
-
-  String get artistName => artist.name;
-
-  Widget _avatarFallback() => Container(
-        width: 64, height: 64,
-        color: kSurface,
-        child: const Icon(Icons.person, color: kTextSecondary, size: 32),
-      );
 }

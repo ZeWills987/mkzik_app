@@ -36,12 +36,7 @@ class ArtistService {
       }
     }).whereType<Track>().toList();
 
-    ArtistPreview? artist;
-    if (data is Map && data['artist'] is Map<String, dynamic>) {
-      artist = ArtistPreview.fromJson(data['artist'] as Map<String, dynamic>);
-    }
-
-    return ArtistTracksResult(tracks: tracks, artist: artist);
+    return ArtistTracksResult(tracks: tracks);
   }
 
   /// `GET /artist/{channelId}/preview` — aperçu rapide d'un artiste YTMusic.
@@ -55,8 +50,7 @@ class ArtistService {
 
 class ArtistTracksResult {
   final List<Track> tracks;
-  final ArtistPreview? artist;
-  const ArtistTracksResult({required this.tracks, this.artist});
+  const ArtistTracksResult({required this.tracks});
 }
 
 class ArtistPreview {
