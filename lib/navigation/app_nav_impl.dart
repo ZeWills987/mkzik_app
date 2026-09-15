@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import '../models/track.dart';
 import '../screens/profile/profile_screen.dart';
+import '../screens/profile/artist_tracks_screen.dart';
 import '../screens/track/track_page.dart';
 import '../screens/player/player_modal.dart';
 import 'app_nav.dart';
@@ -13,6 +14,15 @@ class AppNavImpl implements AppNav {
   @override
   Future<void> openProfile(BuildContext context, String username) =>
       ProfileScreen.open(context, username);
+
+  @override
+  Future<void> openArtist(BuildContext context, Track track) {
+    if (track.artistUrl.isNotEmpty) {
+      return ArtistTracksScreen.open(context, artistUrl: track.artistUrl, artistName: track.artist);
+    }
+    if (track.isExternal) return Future.value();
+    return ProfileScreen.open(context, track.artist);
+  }
 
   @override
   Future<void> openTrack(BuildContext context, Track track) => TrackPage.open(context, track);

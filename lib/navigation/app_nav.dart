@@ -9,6 +9,7 @@ import '../models/track.dart';
 /// est injectée au démarrage dans [appNav].
 abstract interface class AppNav {
   Future<void> openProfile(BuildContext context, String username);
+  Future<void> openArtist(BuildContext context, Track track);
   Future<void> openTrack(BuildContext context, Track track);
   Future<void> openPlayer(BuildContext context);
 }

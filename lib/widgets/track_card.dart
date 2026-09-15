@@ -89,7 +89,7 @@ class TrackCard extends ConsumerWidget {
                   const SizedBox(height: 3),
                   // Artiste cliquable → son profil
                   GestureDetector(
-                    onTap: track.artist.isEmpty ? null : () => appNav.openProfile(context, track.artist),
+                    onTap: track.artist.isEmpty ? null : () => appNav.openArtist(context, track),
                     child: Text(
                       track.artist,
                       style: const TextStyle(color: kTextSecondary, fontSize: 12),
