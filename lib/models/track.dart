@@ -165,8 +165,24 @@ class Track {
       pexSubtype: j['pex_subtype']?.toString(),
       isOriginal: j['is_original'] is bool ? j['is_original'] as bool : null,
       duplicateOf: (j['duplicate_of'] as num?)?.toInt(),
-      artistUrl: (j['artist_url'] ?? j['channel_url'] ?? '').toString(),
+      artistUrl: _resolveArtistUrl(j),
     );
+  }
+
+  /// Résout l'URL du profil artiste depuis le JSON.
+  /// Pour SoundCloud on la dérive de la page_url si absente.
+  static String _resolveArtistUrl(Map<String, dynamic> j) {
+    final explicit = (j['artist_url'] ?? j['channel_url'] ?? '').toString();
+    if (explicit.isNotEmpty) return explicit;
+    final src = (j['source'] ?? '').toString();
+    if (src == 'sc') {
+      final pageUrl = (j['url'] ?? j['page_url'] ?? '').toString();
+      final uri = Uri.tryParse(pageUrl);
+      if (uri != null && uri.pathSegments.length >= 2) {
+        return '${uri.scheme}://${uri.host}/${uri.pathSegments.first}';
+      }
+    }
+    return '';
   }
 
   /// Parse la date de publication, tolérante aux deux formats de l'API :
