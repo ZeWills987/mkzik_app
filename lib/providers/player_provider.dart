@@ -771,27 +771,31 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
-  // next/previous cycliques, délégués au moteur natif (cohérent avec la notif).
+  // next/previous cycliques. On préfère le seek natif (déjà en playlist) ;
+  // sinon on joue directement depuis state.queue (ex: tracks needsStream pas
+  // encore insérées dans la native playlist au moment du tap).
   Future<void> next() async {
     _userInitiatedSkip = true;
-    final n = _playerTracks.length;
-    if (n < 2) return;
     if (_audio.hasNext) {
       await _audio.seekToNext();
-    } else {
-      await _audio.seek(Duration.zero, index: 0); // reboucle au début
+      return;
     }
+    final q = state.queue;
+    if (q.length < 2) return;
+    final nextIdx = (state.currentIndex + 1) % q.length;
+    await playTrack(q[nextIdx], queue: q);
   }
 
   Future<void> previous() async {
     _userInitiatedSkip = true;
-    final n = _playerTracks.length;
-    if (n < 2) return;
     if (_audio.hasPrevious) {
       await _audio.seekToPrevious();
-    } else {
-      await _audio.seek(Duration.zero, index: n - 1); // reboucle à la fin
+      return;
     }
+    final q = state.queue;
+    if (q.length < 2) return;
+    final prevIdx = (state.currentIndex - 1 + q.length) % q.length;
+    await playTrack(q[prevIdx], queue: q);
   }
 
   Future<void> seekTo(Duration position) async {
