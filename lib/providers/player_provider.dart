@@ -556,14 +556,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final signed = await TrackService.getSignedAudioUrlsBatch(toSign);
     if (token != _playToken || _playlist == null) return;
 
-    // needsStream : on ne précharge QUE la track suivante pour éviter une
-    // rafale de requêtes Python sur toute la file.
-    final nextStreamIdx = selIdx + 1 < q.length ? selIdx + 1 : -1;
-
     Track? resolve(Track t, int i) {
       if (t.hasPlayableUrl) return t;
       if (t.needsStream) {
-        if (Platform.isWindows || i != nextStreamIdx) return null;
+        // streamUrl() = construction de string pure, aucun appel Python ici.
+        // Python n'est appelé que quand just_audio joue réellement la track.
         return t.pageUrl.isNotEmpty ? t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl)) : null;
       }
       final url = t.apiId != null ? signed[t.apiId!] : null;
