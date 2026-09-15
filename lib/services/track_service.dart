@@ -75,7 +75,16 @@ class TrackService {
           final raw = line.substring(5).trim();
           if (raw.isEmpty) continue;
           final data = jsonDecode(raw);
-          if (event == 'ytm' || event == 'sc') {
+          if (event == 'track') {
+            // Nouveau format : un event par track
+            final src = (data['source'] ?? '').toString();
+            final tracks = _tracksFrom(data is List ? data : [data], forceSource: src.isEmpty ? null : src);
+            if (tracks.isNotEmpty) {
+              mkLog('Mkzik 🔎 SSE track → ${tracks.first.title}');
+              yield ExternalSearchEvent(source: src, tracks: tracks);
+            }
+          } else if (event == 'ytm' || event == 'sc') {
+            // Ancien format — rétrocompatibilité
             final tracks = _tracksFrom(data, forceSource: event);
             mkLog('Mkzik 🔎 SSE $event → ${tracks.length} titres');
             yield ExternalSearchEvent(source: event, tracks: tracks);
