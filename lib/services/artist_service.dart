@@ -10,7 +10,7 @@ class ArtistService {
   /// `GET /artist/tracks?url=&id=&max_results=`
   /// Scrape les tracks d'un artiste YouTube ou SoundCloud.
   /// [id] = ID Symfony de l'artiste — active l'exclusion des tracks déjà importées.
-  static Future<List<Track>> artistTracks(
+  static Future<ArtistTracksResult> artistTracks(
     String url, {
     int? symfonyId,
     int maxResults = 30,
@@ -24,7 +24,7 @@ class ArtistService {
     final res = await ApiClient.getUri(uri, auth: false, timeout: _timeout);
     final data = res.orElse(null);
     final list = data is Map ? (data['tracks'] as List? ?? const []) : (data is List ? data : const []);
-    return list.whereType<Map<String, dynamic>>().map((j) {
+    final tracks = list.whereType<Map<String, dynamic>>().map((j) {
       try {
         final m = Map<String, dynamic>.from(j);
         if ((m['source'] ?? '').toString().isEmpty) {
@@ -35,6 +35,13 @@ class ArtistService {
         return null;
       }
     }).whereType<Track>().toList();
+
+    ArtistPreview? artist;
+    if (data is Map && data['artist'] is Map<String, dynamic>) {
+      artist = ArtistPreview.fromJson(data['artist'] as Map<String, dynamic>);
+    }
+
+    return ArtistTracksResult(tracks: tracks, artist: artist);
   }
 
   /// `GET /artist/{channelId}/preview` — aperçu rapide d'un artiste YTMusic.
@@ -44,6 +51,12 @@ class ArtistService {
     final data = res.orElse(null);
     return data is Map<String, dynamic> ? ArtistPreview.fromJson(data) : null;
   }
+}
+
+class ArtistTracksResult {
+  final List<Track> tracks;
+  final ArtistPreview? artist;
+  const ArtistTracksResult({required this.tracks, this.artist});
 }
 
 class ArtistPreview {
