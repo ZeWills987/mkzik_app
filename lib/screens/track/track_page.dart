@@ -17,6 +17,7 @@ import '../../widgets/track_cover.dart';
 import '../../widgets/notice_banner.dart';
 import '../../widgets/mini_player.dart';
 import '../profile/profile_screen.dart';
+import '../profile/artist_tracks_screen.dart';
 
 /// Page détaillée d'une track (single zik). On y arrive en cliquant le titre.
 class TrackPage extends ConsumerStatefulWidget {
@@ -161,7 +162,11 @@ class _TrackPageState extends ConsumerState<TrackPage> {
 
                   // Artiste cliquable
                   Tappable(
-                    onTap: track.artist.isEmpty ? null : () => ProfileScreen.open(context, track.artist),
+                    onTap: track.artist.isEmpty
+                        ? null
+                        : track.artistUrl.isNotEmpty
+                            ? () => ArtistTracksScreen.open(context, artistUrl: track.artistUrl, artistName: track.artist)
+                            : () => ProfileScreen.open(context, track.artist),
                     child: Text(track.artist,
                         style: TextStyle(color: accentLight, fontSize: 15, fontWeight: FontWeight.w600)),
                   ),

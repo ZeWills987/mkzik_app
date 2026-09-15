@@ -25,6 +25,7 @@ class Track {
   final String? pexSubtype; // sous-type précis → le badge à afficher
   final bool? isOriginal; // true = original confirmé, false = dérivé, null = non vérifié
   final int? duplicateOf; // id du track "master" si c'est un doublon
+  final String artistUrl; // URL du profil artiste (channel YT, profil SC) — '' si inconnue
 
   const Track({
     required this.id,
@@ -48,6 +49,7 @@ class Track {
     this.pexSubtype,
     this.isOriginal,
     this.duplicateOf,
+    this.artistUrl = '',
   });
 
   /// Badge Mini-Pex à afficher (remix/slowed/…), ou null.
@@ -161,6 +163,7 @@ class Track {
       pexSubtype: j['pex_subtype']?.toString(),
       isOriginal: j['is_original'] is bool ? j['is_original'] as bool : null,
       duplicateOf: (j['duplicate_of'] as num?)?.toInt(),
+      artistUrl: (j['artist_url'] ?? j['channel_url'] ?? '').toString(),
     );
   }
 
@@ -174,7 +177,7 @@ class Track {
     return null;
   }
 
-  Track copyWith({bool? isFavoris, String? audioUrl}) => Track(
+  Track copyWith({bool? isFavoris, String? audioUrl, String? artistUrl}) => Track(
         id: id,
         apiId: apiId,
         title: title,
@@ -196,6 +199,7 @@ class Track {
         pexSubtype: pexSubtype,
         isOriginal: isOriginal,
         duplicateOf: duplicateOf,
+        artistUrl: artistUrl ?? this.artistUrl,
       );
 
   @override
