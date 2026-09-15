@@ -25,7 +25,8 @@ class Track {
   final String? pexSubtype; // sous-type précis → le badge à afficher
   final bool? isOriginal; // true = original confirmé, false = dérivé, null = non vérifié
   final int? duplicateOf; // id du track "master" si c'est un doublon
-  final String artistUrl; // URL du profil artiste (channel YT, profil SC) — '' si inconnue
+  final String artistUrl;   // URL du profil artiste (channel YT, profil SC) — '' si inconnue
+  final String uploaderId;  // uploader_id Python (UCxxxxxx pour YT, slug pour SC)
 
   const Track({
     required this.id,
@@ -50,6 +51,7 @@ class Track {
     this.isOriginal,
     this.duplicateOf,
     this.artistUrl = '',
+    this.uploaderId = '',
   });
 
   /// Badge Mini-Pex à afficher (remix/slowed/…), ou null.
@@ -166,6 +168,7 @@ class Track {
       isOriginal: j['is_original'] is bool ? j['is_original'] as bool : null,
       duplicateOf: (j['duplicate_of'] as num?)?.toInt(),
       artistUrl: _resolveArtistUrl(j),
+      uploaderId: (j['uploader_id'] ?? '').toString(),
     );
   }
 
@@ -175,6 +178,16 @@ class Track {
     final explicit = (j['artist_url'] ?? j['channel_url'] ?? '').toString();
     if (explicit.isNotEmpty && explicit != '#') return explicit;
     final src = (j['source'] ?? '').toString();
+    final uid = (j['uploader_id'] ?? '').toString();
+    if (uid.isNotEmpty) {
+      if (src == 'ytm' || src == 'yt' || src.contains('youtube')) {
+        return 'https://www.youtube.com/channel/$uid';
+      }
+      if (src == 'sc' || src.contains('soundcloud')) {
+        return 'https://soundcloud.com/$uid';
+      }
+    }
+    // Dernier recours SoundCloud : extraire depuis page_url
     if (src == 'sc') {
       final pageUrl = (j['url'] ?? j['page_url'] ?? '').toString();
       final uri = Uri.tryParse(pageUrl);
@@ -195,7 +208,7 @@ class Track {
     return null;
   }
 
-  Track copyWith({bool? isFavoris, String? audioUrl, String? artistUrl}) => Track(
+  Track copyWith({bool? isFavoris, String? audioUrl, String? artistUrl, String? uploaderId}) => Track(
         id: id,
         apiId: apiId,
         title: title,
@@ -218,6 +231,7 @@ class Track {
         isOriginal: isOriginal,
         duplicateOf: duplicateOf,
         artistUrl: artistUrl ?? this.artistUrl,
+        uploaderId: uploaderId ?? this.uploaderId,
       );
 
   @override
