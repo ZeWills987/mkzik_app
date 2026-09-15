@@ -143,7 +143,7 @@ class Track {
       apiId: apiId,
       title: (j['title'] ?? '').toString(),
       artist: artist,
-      coverUrl: (j['thumbnails'] ?? j['cover_url'] ?? '').toString(),
+      coverUrl: (j['thumbnails'] ?? j['cover_url'] ?? j['thumbnail'] ?? '').toString(),
       pageUrl: (j['url'] ?? j['page_url'] ?? '').toString(),
       duration: Duration(seconds: (j['duration'] as num?)?.toInt() ?? 0),
       audioUrl: (j['audio_url'] ?? '').toString(),
