@@ -52,7 +52,7 @@ class ArtistService {
   static Stream<ArtistTracksResult> artistTracksStream(
     String url, {
     int? symfonyId,
-    int maxResults = 200,
+    int maxResults = 30,
   }) async* {
     final params = <String, String>{
       'url': url,
@@ -71,6 +71,8 @@ class ArtistService {
         request.headers.add('Authorization', 'Bearer ${ApiConfig.token}');
       }
       final response = await request.close();
+      // ignore: avoid_print
+      print('[SSE] connected — status ${response.statusCode}');
 
       final accumulated = <Track>[];
       ArtistPreview? artist;
