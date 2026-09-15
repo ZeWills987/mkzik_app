@@ -130,6 +130,8 @@ class Track {
         artist = uploaderRaw; // format Python (externe)
       } else if (j['uploaders'] is List && (j['uploaders'] as List).isNotEmpty) {
         artist = '${(j['uploaders'] as List).first}';
+      } else if (j['artist'] is String) {
+        artist = j['artist'] as String; // format Python /artist/tracks
       }
     }
 

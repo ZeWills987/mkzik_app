@@ -25,12 +25,16 @@ class ArtistService {
     final data = res.orElse(null);
     final list = data is Map ? (data['tracks'] as List? ?? const []) : (data is List ? data : const []);
     return list.whereType<Map<String, dynamic>>().map((j) {
-      final m = Map<String, dynamic>.from(j);
-      if ((m['source'] ?? '').toString().isEmpty) {
-        m['source'] = url.contains('soundcloud') ? 'sc' : 'ytm';
+      try {
+        final m = Map<String, dynamic>.from(j);
+        if ((m['source'] ?? '').toString().isEmpty) {
+          m['source'] = url.contains('soundcloud') ? 'sc' : 'ytm';
+        }
+        return Track.fromJson(m);
+      } catch (_) {
+        return null;
       }
-      return Track.fromJson(m);
-    }).toList();
+    }).whereType<Track>().toList();
   }
 
   /// `GET /artist/{channelId}/preview` — aperçu rapide d'un artiste YTMusic.
