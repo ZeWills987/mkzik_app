@@ -80,11 +80,12 @@ class ArtistTracksScreen extends ConsumerWidget {
             data: (result) {
               final tracks = result.tracks;
               final artist = result.artist;
+              final isStreaming = resultAsync.isLoading || !resultAsync.hasValue;
               return SliverMainAxisGroup(
                 slivers: [
                   if (artist != null)
                     SliverToBoxAdapter(child: _ArtistHeader(artist: artist, fallbackName: artistName)),
-                  if (tracks.isEmpty)
+                  if (tracks.isEmpty && !isStreaming)
                     const SliverFillRemaining(
                       child: Center(
                         child: Text('Aucune zik trouvée', style: TextStyle(color: kTextSecondary)),
@@ -98,6 +99,13 @@ class ArtistTracksScreen extends ConsumerWidget {
                           (_, i) => TrackTile(track: tracks[i], queue: tracks),
                           childCount: tracks.length,
                         ),
+                      ),
+                    ),
+                  if (isStreaming)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Center(child: CircularProgressIndicator(color: kAccent, strokeWidth: 2)),
                       ),
                     ),
                 ],

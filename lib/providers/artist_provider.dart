@@ -1,10 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/artist_service.dart';
 
-/// Tracks + infos artiste externe (YouTube / SoundCloud) via Python.
+/// Tracks d'un artiste externe (YouTube / SoundCloud) via Python SSE.
 /// Paramètre : URL du profil artiste (ex: https://www.youtube.com/@PNL).
+/// Émet des snapshots cumulatifs — la liste grandit au fur et à mesure.
 final artistTracksProvider =
-    FutureProvider.autoDispose.family<ArtistTracksResult, String>((ref, artistUrl) async {
-  if (artistUrl.isEmpty) return const ArtistTracksResult(tracks: []);
-  return ArtistService.artistTracks(artistUrl);
+    StreamProvider.autoDispose.family<ArtistTracksResult, String>((ref, artistUrl) {
+  if (artistUrl.isEmpty) return Stream.value(const ArtistTracksResult(tracks: []));
+  return ArtistService.artistTracksStream(artistUrl);
 });

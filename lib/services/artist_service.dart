@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/track.dart';
 import 'api_client.dart';
@@ -42,6 +45,56 @@ class ArtistService {
     }
 
     return ArtistTracksResult(tracks: tracks, artist: artist);
+  }
+
+  /// `GET /artist/tracks/stream` — SSE : envoie les tracks une par une dès découverte.
+  /// Émet des snapshots cumulatifs `ArtistTracksResult` à chaque track reçue.
+  static Stream<ArtistTracksResult> artistTracksStream(
+    String url, {
+    int? symfonyId,
+    int maxResults = 200,
+  }) async* {
+    final params = <String, String>{
+      'url': url,
+      'max_results': '$maxResults',
+      if (symfonyId != null) 'id': '$symfonyId',
+    };
+    final uri = Uri.parse('${ApiConfig.pythonUrl}artist/tracks/stream').replace(queryParameters: params);
+
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', uri);
+      if (ApiConfig.token != null) request.headers['Authorization'] = 'Bearer ${ApiConfig.token}';
+      final response = await client.send(request);
+
+      final accumulated = <Track>[];
+      ArtistPreview? artist;
+      final source = url.contains('soundcloud') ? 'sc' : 'ytm';
+
+      await for (final line in response.stream.transform(utf8.decoder).transform(const LineSplitter())) {
+        if (!line.startsWith('data: ')) continue;
+        final payload = line.substring(6).trim();
+        if (payload.isEmpty) continue;
+        final json = jsonDecode(payload) as Map<String, dynamic>;
+
+        if (json['done'] == true) break;
+
+        if (json.containsKey('name') && !json.containsKey('title')) {
+          artist = ArtistPreview.fromJson(json);
+          yield ArtistTracksResult(tracks: List.unmodifiable(accumulated), artist: artist);
+          continue;
+        }
+
+        try {
+          final m = Map<String, dynamic>.from(json);
+          if ((m['source'] ?? '').toString().isEmpty) m['source'] = source;
+          accumulated.add(Track.fromJson(m));
+          yield ArtistTracksResult(tracks: List.unmodifiable(accumulated), artist: artist);
+        } catch (_) {}
+      }
+    } finally {
+      client.close();
+    }
   }
 
   /// `GET /artist/{channelId}/preview` — aperçu rapide d'un artiste YTMusic.
