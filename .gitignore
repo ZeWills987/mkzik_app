@@ -56,3 +56,4 @@ android/app/version.properties
 android/app/google-services.json
 android/app/*.keystore
 android/key.properties
+ios/Runner/GoogleService-Info.plist

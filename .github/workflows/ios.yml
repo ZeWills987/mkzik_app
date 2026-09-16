@@ -42,6 +42,16 @@ jobs:
             touch .env
           fi
 
+      # GoogleService-Info.plist est dans .gitignore (contient des clés API).
+      # On le recrée depuis le secret GOOGLE_SERVICES_PLIST (contenu du fichier).
+      - name: Restaurer GoogleService-Info.plist
+        env:
+          GOOGLE_SERVICES_PLIST: ${{ secrets.GOOGLE_SERVICES_PLIST }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_PLIST" ]; then
+            printf '%s' "$GOOGLE_SERVICES_PLIST" > ios/Runner/GoogleService-Info.plist
+          fi
+
       # iOS 26 exige le SDK Xcode 26. latest-stable = le plus récent du runner.
       - name: Sélectionner Xcode
         uses: maxim-lobanov/setup-xcode@v1
