@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/track.dart';
+import '../providers/paginated_tracks_provider.dart' show TrackPageFetcher;
 import '../providers/player_provider.dart';
 import '../theme/app_theme.dart';
 import '../navigation/app_nav.dart';
@@ -11,6 +12,9 @@ class TrackCard extends ConsumerWidget {
   final List<Track> queue;
   final double width;
   final bool showPublishedAt; // affiche "il y a X" (date de sortie) si dispo
+  // Page suivante de la liste d'origine (file du player étendue au fil de l'écoute).
+  final TrackPageFetcher? fetchMore;
+  final int pageSize;
 
   const TrackCard({
     super.key,
@@ -18,6 +22,8 @@ class TrackCard extends ConsumerWidget {
     required this.queue,
     this.width = 170,
     this.showPublishedAt = false,
+    this.fetchMore,
+    this.pageSize = 20,
   });
 
   @override
@@ -27,7 +33,8 @@ class TrackCard extends ConsumerWidget {
     final isActive = currentTrack?.id == track.id;
 
     return GestureDetector(
-      onTap: () => ref.read(playerProvider.notifier).playTrack(track, queue: queue),
+      onTap: () => ref.read(playerProvider.notifier).playTrack(track,
+          queue: queue, fetchMore: fetchMore, pageSize: pageSize, hasMore: queue.length >= pageSize),
       child: SizedBox(
         width: width,
         child: Column(

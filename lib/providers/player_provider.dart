@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:audio_session/audio_session.dart';
@@ -11,11 +13,11 @@ import '../models/track.dart';
 import '../services/external_track_service.dart';
 import '../services/track_service.dart';
 import '../services/radio_service.dart';
-import '../services/stream_service.dart';
 import '../utils/media.dart';
 import 'import_provider.dart';
 import 'favourites_provider.dart';
 import 'notice_provider.dart';
+import 'paginated_tracks_provider.dart' show TrackPageFetcher;
 import '../utils/logger.dart';
 
 // Mode de répétition. `off` est conservé pour compat mais n'est plus utilisé :
@@ -27,6 +29,7 @@ enum RepeatMode { off, all, one }
 class PlayerState {
   final Track? currentTrack;
   final bool isPlaying;
+  final bool isLoading; // résolution + mise en tampon du titre, avant le démarrage réel
   final bool isLiked;
   final bool isShuffle;
   final RepeatMode repeatMode;
@@ -39,6 +42,7 @@ class PlayerState {
   const PlayerState({
     this.currentTrack,
     this.isPlaying = false,
+    this.isLoading = false,
     this.isLiked = false,
     this.isShuffle = false,
     this.repeatMode = RepeatMode.all,
@@ -52,6 +56,7 @@ class PlayerState {
   PlayerState copyWith({
     Track? currentTrack,
     bool? isPlaying,
+    bool? isLoading,
     bool? isLiked,
     bool? isShuffle,
     RepeatMode? repeatMode,
@@ -64,6 +69,7 @@ class PlayerState {
     return PlayerState(
       currentTrack: currentTrack ?? this.currentTrack,
       isPlaying: isPlaying ?? this.isPlaying,
+      isLoading: isLoading ?? this.isLoading,
       isLiked: isLiked ?? this.isLiked,
       isShuffle: isShuffle ?? this.isShuffle,
       repeatMode: repeatMode ?? this.repeatMode,
@@ -100,6 +106,35 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final AudioPlayer _audio = AudioPlayer();
   // Jeton anti-concurrence : invalide les chargements obsolètes (taps rapides)
   int _playToken = 0;
+
+  // URLs signées S3 déjà obtenues, par apiId — réutilisées tant qu'elles n'expirent pas.
+  final Map<int, SignedAudio> _signedCache = {};
+  // Marge avant expiration : une URL qui expire dans la minute est considérée périmée.
+  static const _signedExpiryMargin = Duration(seconds: 60);
+
+  // Windows : la playlist native ne contient QUE le titre en cours. WinRT émet
+  // de faux changements d'index à chaque insertion/suppression dans sa
+  // playlist (titre rechargé à 0 s, bloqué puis sauté). L'enchaînement passe
+  // donc entièrement par la file Dart (fin de titre → _advanceFromQueue).
+  static final bool _nativeSingleItem = Platform.isWindows;
+
+  // Liste d'origine de la lecture (tout ce qui est connu : pages déjà chargées).
+  // La file affichée (state.queue) n'en est qu'une fenêtre autour du titre courant.
+  List<Track> _source = [];
+  TrackPageFetcher? _sourceFetch; // page suivante de la liste (API), null si liste fixe
+  int _sourcePageSize = 20;
+  int _sourceFetchedCount = 0; // offset API = titres déjà reçus de la source
+  bool _sourceHasMore = false;
+  bool _extendingForward = false;
+  bool _extendingBackward = false;
+  static const _kWindow = 10; // titres chargés avant / après le titre courant
+  static const _kNativeAhead = 3; // titres suivants préchargés dans la playlist native
+  bool _toppingUpNative = false;
+
+  // Flux Python en cours de résolution en arrière-plan (ids de track).
+  final Set<String> _pendingStreams = {};
+  // Change quand l'utilisateur lance une autre liste → annule les réinsertions.
+  int _queueEpoch = 0;
 
   // Playlist native ExoPlayer/AVPlayer : sa séquence reflète la file Dart, ce
   // qui fait fonctionner prev/next nativement (notification + écran verrouillé).
@@ -168,6 +203,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
     // Sync isPlaying avec l'état réel du player
     _audio.playerStateStream.listen((ps) {
+      if (ps.processingState == ProcessingState.completed && !_nativeCoversQueue) {
+        unawaited(Future.microtask(_advanceFromQueue));
+      }
       state = state.copyWith(isPlaying: ps.playing);
       _smtc?.setPlaybackStatus(ps.playing ? PlaybackStatus.playing : PlaybackStatus.paused);
     }, onError: (Object e) => mkLog('Mkzik ▶ playerStateStream erreur : $e'));
@@ -332,10 +370,16 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         if (prevTrack != null) {
           final prevPIdx = _playerTracks.indexWhere((x) => x.id == prevTrack.id);
           if (prevPIdx >= 0) {
-            unawaited(() async {
-              await _audio.seek(prevPos, index: prevPIdx);
-              if (!_audio.playing) await _audio.play();
-            }());
+            // Microtask : on est dans le dispatch de currentIndexStream, un seek
+            // synchrone ré-émettrait sur le même stream → Bad state.
+            unawaited(Future.microtask(() async {
+              try {
+                await _audio.seek(prevPos, index: prevPIdx);
+                if (!_audio.playing) await _audio.play();
+              } catch (e) {
+                mkLog('Mkzik ▶ restitution impossible : $e');
+              }
+            }));
           }
         }
         return; // bloque le skip prématuré
@@ -359,18 +403,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // précharge des suggestions et on les ajoute pour enchaîner sans coupure.
     // (On se base sur la file Dart complète, pas sur _playerTracks qui peut être
     // partiel pendant l'hydratation en arrière-plan.)
-    if (qIdx >= 0 && qIdx == state.queue.length - 1) {
+    if (qIdx >= 0 && qIdx == state.queue.length - 1 && loadedAllUpcoming) {
       unawaited(_maybeExtendWithRadio());
     }
-    // Pré-chauffe yt-dlp pour la prochaine track externe (réduit la latence au skip).
     if (!sameTrack) {
-      final ni = state.currentIndex + 1;
-      if (ni < state.queue.length) {
-        final next = state.queue[ni];
-        if (next.needsStream && next.pageUrl.isNotEmpty) {
-          StreamService.prepareNext(next.pageUrl);
-        }
-      }
+      unawaited(_ensureWindow());
+      unawaited(_topUpNative());
     }
   }
 
@@ -408,14 +446,260 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     await TrackService.completePlay(id, listenedSeconds: maxMs / 1000.0, completed: completed);
   }
 
-  Future<void> playTrack(Track track, {List<Track>? queue}) async {
+  bool _isSignedFresh(SignedAudio s) =>
+      s.expiresAt != null && s.expiresAt!.isAfter(DateTime.now().add(_signedExpiryMargin));
+
+  Future<String?> _signedUrlFor(int apiId) async {
+    final cached = _signedCache[apiId];
+    if (cached != null && _isSignedFresh(cached)) return cached.url;
+    final signed = await TrackService.getSignedAudio(apiId);
+    if (signed == null) return null;
+    _signedCache[apiId] = signed;
+    return signed.url;
+  }
+
+  Future<Map<int, String>> _signedUrlsFor(List<int> ids) async {
+    final out = <int, String>{};
+    final missing = <int>[];
+    for (final id in ids) {
+      final cached = _signedCache[id];
+      if (cached != null && _isSignedFresh(cached)) {
+        out[id] = cached.url;
+      } else {
+        missing.add(id);
+      }
+    }
+    if (missing.isNotEmpty) {
+      final fetched = await TrackService.getSignedAudioBatch(missing);
+      fetched.forEach((id, s) {
+        _signedCache[id] = s;
+        out[id] = s.url;
+      });
+    }
+    return out;
+  }
+
+  /// La source déjà chargée peut-elle être relue telle quelle ? Faux si c'est une
+  /// URL signée expirée (ou dont l'expiration est inconnue) → il faut re-signer.
+  bool _loadedSourceStillValid(Track t) {
+    final id = t.apiId;
+    final signed = id == null ? null : _signedCache[id];
+    return signed == null || _isSignedFresh(signed);
+  }
+
+  /// Titre demandé = titre déjà chargé, URL encore valide → retour au début
+  /// sans rappel API. Renvoie false s'il faut recharger.
+  Future<bool> _restartCurrent(Track track) async {
+    final cur = state.currentTrack;
+    if (cur == null || cur.id != track.id || state.isLoading) return false;
+    final ps = _audio.processingState;
+    if (ps == ProcessingState.idle || ps == ProcessingState.loading) return false;
+    if (!_loadedSourceStillValid(cur)) return false;
+    try {
+      await _audio.seek(Duration.zero);
+      await _audio.play();
+    } catch (e) {
+      mkLog('Mkzik ▶ reprise au début impossible, rechargement : $e');
+      return false;
+    }
+    await _finishPlay();
+    unawaited(_beginPlay(cur));
+    return true;
+  }
+
+  /// Code HTTP renvoyé par le proxy /stream, extrait du message d'erreur du
+  /// player (just_audio n'expose ni headers ni corps de réponse).
+  static int? _httpStatusIn(Object e) {
+    final m = RegExp(r'\b(404|409|429|502|503|504)\b').firstMatch('$e');
+    return m == null ? null : int.parse(m.group(1)!);
+  }
+
+  /// Retire le titre en échec de la file et enchaîne sur le suivant.
+  void _skipFailed(List<Track> q, int idx) {
+    final failedId = q[idx].id;
+    final srcIdx = _source.indexWhere((t) => t.id == failedId);
+    if (srcIdx >= 0) _source.removeAt(srcIdx);
+    final rest = [...q]..removeAt(idx);
+    if (rest.isEmpty || _source.isEmpty) {
+      state = state.copyWith(isPlaying: false);
+      return;
+    }
+    final next = idx < rest.length ? rest[idx] : _source[(srcIdx < 0 ? 0 : srcIdx) % _source.length];
+    state = state.copyWith(queue: rest, currentIndex: rest.indexWhere((t) => t.id == next.id));
+    unawaited(Future.microtask(() => _playFromSource(next)));
+  }
+
+  /// Flux Python pas encore prêt : on enchaîne tout de suite et on surveille sa
+  /// résolution en arrière-plan pour le réinsérer juste après le titre en cours.
+  void _deferUnresolved(Track track, List<Track> q, int idx) {
+    final alone = _source.length < 2;
+    if (_pendingStreams.add(track.id)) {
+      unawaited(_waitForStream(track, _queueEpoch));
+    }
+    if (alone) {
+      state = state.copyWith(isPlaying: false);
+      _ref.read(noticeProvider.notifier).show('« ${track.title} » se lancera dès qu\'il est prêt');
+      return;
+    }
+    _skipFailed(q, idx);
+  }
+
+  Future<void> _waitForStream(Track track, int epoch) async {
+    final deadline = DateTime.now().add(const Duration(minutes: 2));
+    var delay = const Duration(seconds: 3);
+    var gaveUpUnavailable = false;
+    try {
+      while (DateTime.now().isBefore(deadline)) {
+        if (epoch != _queueEpoch) return;
+        final status = await _probeStream(track);
+        if (epoch != _queueEpoch) return;
+        if (status == 200 || status == 206) {
+          await _insertAsNext(track);
+          return;
+        }
+        if (status == 404) {
+          gaveUpUnavailable = true;
+          break;
+        }
+        await Future.delayed(delay);
+        delay = Duration(seconds: (delay.inSeconds * 2).clamp(3, 30));
+      }
+      if (epoch == _queueEpoch) {
+        _ref.read(noticeProvider.notifier).show(gaveUpUnavailable
+            ? '« ${track.title} » indisponible'
+            : '« ${track.title} » indisponible pour le moment');
+      }
+    } finally {
+      _pendingStreams.remove(track.id);
+    }
+  }
+
+  /// Sonde le proxy /stream (1er octet). Python partage la résolution en cours
+  /// et met le résultat en cache → un 206 signifie que le titre est prêt.
+  Future<int?> _probeStream(Track track) async {
+    if (track.pageUrl.isEmpty) return 404;
+    final client = http.Client();
+    try {
+      final req = http.Request('GET', Uri.parse(ApiConfig.streamUrl(track.pageUrl)))
+        ..headers['Range'] = 'bytes=0-1';
+      final jwt = ApiConfig.token;
+      if (jwt != null && jwt.isNotEmpty) req.headers['Authorization'] = 'Bearer $jwt';
+      final res = await client.send(req).timeout(const Duration(seconds: 60));
+      return res.statusCode;
+    } catch (_) {
+      return null;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Insère un flux désormais résolu juste après le titre en cours, sans
+  /// interrompre la lecture.
+  Future<void> _insertAsNext(Track track) async {
+    final t = track.copyWith(audioUrl: ApiConfig.streamUrl(track.pageUrl));
+    final cur = state.currentTrack;
+    final notices = _ref.read(noticeProvider.notifier);
+
+    // File d'un seul titre restée à l'arrêt sur ce titre → on le lance.
+    if (cur?.id == t.id && !state.isPlaying && !state.isLoading) {
+      notices.show('« ${t.title} » est prêt', icon: NoticeIcon.playNext);
+      await _playFromSource(t);
+      return;
+    }
+    if (cur == null || _playlist == null) return;
+    final q = [...state.queue];
+    if (q.any((x) => x.id == t.id)) return;
+    q.insert((state.currentIndex + 1).clamp(0, q.length), t);
+    final curSrc = _source.indexWhere((x) => x.id == cur.id);
+    _source.insert(curSrc < 0 ? _source.length : curSrc + 1, t);
+
+    final pIdx = _playerTracks.indexWhere((x) => x.id == cur.id);
+    _suppressIndexChange = true;
+    try {
+      // Un flux Python ne va JAMAIS dans la playlist native avant de devenir
+      // courant (même logique que _topUpNative) — on coupe ce qui suit le
+      // titre courant, l'enchaînement passera par state.queue le moment venu.
+      if (pIdx >= 0 && pIdx + 1 < _playerTracks.length) {
+        await _playlist!.removeRange(pIdx + 1, _playerTracks.length);
+        _playerTracks = _playerTracks.sublist(0, pIdx + 1);
+      }
+    } catch (e) {
+      mkLog('Mkzik ▶ réinsertion de "${t.title}" impossible : $e');
+    } finally {
+      _suppressIndexChange = false;
+    }
+    state = state.copyWith(queue: q);
+    await _applyNativeLoopMode();
+    notices.show('« ${t.title} » sera joué ensuite', icon: NoticeIcon.playNext);
+  }
+
+  /// Lance [track] dans la liste [queue].
+  ///
+  /// La file du player ne contient qu'une **fenêtre** de la liste : jusqu'à
+  /// [_kWindow] titres avant et après le titre courant. Elle s'étend au fil de
+  /// l'écoute (ou du scroll de la file d'attente) depuis [queue], puis via
+  /// [fetchMore] (page suivante de l'API) quand la liste chargée est épuisée.
+  Future<void> playTrack(
+    Track track, {
+    List<Track>? queue,
+    TrackPageFetcher? fetchMore,
+    int pageSize = 20,
+    bool hasMore = true,
+  }) async {
+    // Titre déjà en cours de chargement → on ignore les clics répétés.
+    if (state.isLoading && state.currentTrack?.id == track.id) return;
+    final list = [...(queue ?? [track])];
+    if (!list.any((t) => t.id == track.id)) list.insert(0, track);
+
+    final sameList = listEquals(
+      list.map((t) => t.id).toList(),
+      _source.take(list.length).map((t) => t.id).toList(),
+    );
+    if (!sameList) {
+      // Nouvelle liste → les réinsertions en attente sont abandonnées.
+      _queueEpoch++;
+      _source = list;
+      _sourceFetch = fetchMore;
+      _sourcePageSize = pageSize;
+      _sourceFetchedCount = list.length;
+      _sourceHasMore = fetchMore != null && hasMore;
+    } else if (fetchMore != null && _sourceFetch == null) {
+      _sourceFetch = fetchMore;
+      _sourcePageSize = pageSize;
+      _sourceHasMore = hasMore;
+    }
+    if (await _restartCurrent(track)) return;
+    await _playFromSource(track);
+  }
+
+  /// Lance [track] (présent dans [_source]) avec une file fenêtrée autour de lui.
+  Future<void> _playFromSource(Track track) async {
+    if (state.isLoading && state.currentTrack?.id == track.id) return;
+    var srcIdx = _source.indexWhere((t) => t.id == track.id);
+    if (srcIdx < 0) {
+      _source.insert(0, track);
+      srcIdx = 0;
+    }
+    final window = _source.sublist(
+      (srcIdx - _kWindow).clamp(0, _source.length),
+      (srcIdx + _kWindow + 1).clamp(0, _source.length),
+    );
+    final token = ++_playToken;
+    state = state.copyWith(isLoading: true);
+    try {
+      await _startTrack(track, window, token);
+    } finally {
+      if (token == _playToken && state.isLoading) state = state.copyWith(isLoading: false);
+    }
+  }
+
+  Future<void> _startTrack(Track track, List<Track>? queue, int token) async {
     final q = [...(queue ?? [track])];
     var selIdx = q.indexWhere((t) => t.id == track.id);
     if (selIdx < 0) {
       q.insert(0, track);
       selIdx = 0;
     }
-    final token = ++_playToken;
     _radioFromId = null; // nouvelle file → autorise une nouvelle extension radio
 
     // Ferme EN FORCE la bannière de stream du titre précédent si elle traîne
@@ -503,7 +787,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           closeStreamJob();
           return;
         }
-        await _audio.setLoopMode(_loopFor(state.repeatMode));
+        await _applyNativeLoopMode();
         await _audio.setShuffleModeEnabled(state.isShuffle);
         await _audio.play();
         started = true;
@@ -523,6 +807,27 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         // transitoire → un retry immédiat vaut le coup.
         final timedOut = e is TimeoutException;
         final unavailable = _isTrackUnavailable(e);
+        final status = _httpStatusIn(e);
+        if (status == 409) {
+          // Requête annulée côté serveur (client parti) → silencieux.
+          closeStreamJob();
+          state = state.copyWith(isPlaying: false);
+          return;
+        }
+        // Flux Python lent / anti-bot / surcharge : on n'attend pas. Le titre
+        // est retiré de la file, on enchaîne, et il revient en « suivant » dès
+        // que Python l'a résolu (cf. _waitForStream).
+        final transient = timedOut || const {429, 502, 503, 504}.contains(status);
+        if (track.needsStream && transient && !unavailable) {
+          closeStreamJob();
+          _deferUnresolved(track, q, selIdx);
+          return;
+        }
+        if (unavailable && q.length > 1) {
+          closeStreamJob(errorMessage: 'Titre indisponible');
+          _skipFailed(q, selIdx);
+          return;
+        }
         if (unavailable || attempt == 2) {
           closeStreamJob(
             errorMessage: unavailable
@@ -537,7 +842,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
     // Hydrate le reste de la file en arrière-plan (signe + insère autour du
     // titre courant). Non attendu → la lecture a déjà démarré.
-    unawaited(_hydrateQueue(q, selIdx, current, token));
+    unawaited(_hydrateQueue(q, selIdx, current, token).then((_) {
+      if (token == _playToken) return _ensureWindow();
+    }));
   }
 
   /// Résout (signe) les autres titres de la file et les insère autour du titre
@@ -545,71 +852,78 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// Les internes sont signés en UNE requête batch (`POST api/tracks/sign-batch`)
   /// au lieu d'un GET .../audio par titre (rafale de N requêtes sur une playlist).
   Future<void> _hydrateQueue(List<Track> q, int selIdx, Track current, int token) async {
-    if (q.length < 2) return;
+    if (token != _playToken) return;
+    await _topUpNative();
+  }
 
-    // Ids des titres internes qui ont besoin d'une URL signée
-    final toSign = <int>[
-      for (var i = 0; i < q.length; i++)
-        if (i != selIdx && !q[i].hasPlayableUrl && !q[i].needsStream && q[i].apiId != null)
-          q[i].apiId!,
-    ];
-    final signed = await TrackService.getSignedAudioUrlsBatch(toSign);
-    if (token != _playToken || _playlist == null) return;
-
-    Track? resolve(Track t, int i) {
-      if (t.hasPlayableUrl) return t;
-      if (t.needsStream) {
-        // streamUrl() = construction de string pure, aucun appel Python ici.
-        // Python n'est appelé que quand just_audio joue réellement la track.
-        return t.pageUrl.isNotEmpty ? t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl)) : null;
-      }
-      final url = t.apiId != null ? signed[t.apiId!] : null;
-      return url != null ? t.copyWith(audioUrl: url) : null;
-    }
-
-    final resolved = [
-      for (var i = 0; i < q.length; i++) i == selIdx ? current : resolve(q[i], i),
-    ];
-
-    // Sépare les titres jouables avant / après le titre courant
-    final before = <Track>[];
-    final beforeSources = <AudioSource>[];
-    for (var i = 0; i < selIdx; i++) {
-      final rt = resolved[i];
-      if (rt == null || rt.audioUrl.isEmpty) continue;
-      before.add(rt);
-      beforeSources.add(_audioSourceFor(rt));
-    }
-    final after = <Track>[];
-    final afterSources = <AudioSource>[];
-    for (var i = selIdx + 1; i < q.length; i++) {
-      final rt = resolved[i];
-      if (rt == null || rt.audioUrl.isEmpty) continue;
-      after.add(rt);
-      afterSources.add(_audioSourceFor(rt));
-    }
-    if (before.isEmpty && after.isEmpty) return;
-
-    // Met à jour _playerTracks APRÈS les insertions pour que _onCurrentIndexChanged
-    // ne mappe jamais un index natif en transition sur le mauvais titre.
-    // Le verrou supprime les événements d'index pendant la manipulation.
-    _suppressIndexChange = true;
+  /// La playlist native ne contient que le titre courant + les [_kNativeAhead]
+  /// suivants (gapless sur l'enchaînement). Elle est complétée au fil de
+  /// l'écoute, jamais d'un bloc : chaque ajout coûte une signature S3 et une
+  /// mutation ExoPlayer. Les précédents ne sont pas préchargés (« précédent »
+  /// passe par la file, cf. previous()).
+  Future<void> _topUpNative() async {
+    if (_nativeSingleItem || _toppingUpNative || _playlist == null || _playerTracks.isEmpty) return;
+    _toppingUpNative = true;
     try {
-      if (before.isNotEmpty) await _playlist!.insertAll(0, beforeSources);
-      if (after.isNotEmpty) await _playlist!.addAll(afterSources);
-      _playerTracks = [...before, current, ...after];
+      final q = state.queue;
+      final lastQ = q.indexWhere((t) => t.id == _playerTracks.last.id);
+      if (lastQ < 0) return;
+      final target = (state.currentIndex + _kNativeAhead).clamp(0, q.length - 1);
+      if (lastQ >= target) return;
+      final token = _playToken;
+      // On ne pousse JAMAIS un flux Python (needsStream) en avance dans le
+      // lecteur natif : ExoPlayer/AVPlayer précharge le média suivant d'une
+      // ConcatenatingAudioSource pour l'enchaînement gapless, ce qui déclenche
+      // sinon une résolution yt-dlp côté Python avant que le titre ne soit
+      // réellement en cours. On s'arrête donc juste avant le premier flux
+      // Python rencontré — il sera résolu à la volée quand il deviendra
+      // courant (cf. _playFromSource / _advanceFromQueue).
+      final all = q.sublist(lastQ + 1, target + 1);
+      final streamIdx = all.indexWhere((t) => t.needsStream);
+      final tracks = streamIdx < 0 ? all : all.sublist(0, streamIdx);
+      if (tracks.isEmpty) return;
+      final resolved = await _resolveBatch(tracks);
+      if (token != _playToken || _playlist == null) return;
+      // La file a pu bouger pendant la signature : on n'ajoute que si la
+      // playlist native s'arrête toujours juste avant ces titres.
+      final nowLast = state.queue.indexWhere((t) => t.id == _playerTracks.last.id);
+      if (nowLast < 0 || nowLast + 1 >= state.queue.length || state.queue[nowLast + 1].id != tracks.first.id) {
+        return;
+      }
+      final add = [for (final r in resolved) if (r != null && r.audioUrl.isNotEmpty) r];
+      if (add.isEmpty) return;
+      _suppressIndexChange = true;
+      try {
+        await _playlist!.addAll([for (final t in add) _audioSourceFor(t)]);
+        _playerTracks = [..._playerTracks, ...add];
+      } finally {
+        _suppressIndexChange = false;
+      }
+      await _applyNativeLoopMode();
+    } catch (e) {
+      mkLog('Mkzik ▶ complément de la playlist native impossible : $e');
     } finally {
-      _suppressIndexChange = false;
-      // Resync : l'index natif a pu changer (insertion de `before` en tête).
-      final ni = _audio.currentIndex;
-      if (ni != null && ni >= 0 && ni < _playerTracks.length) {
-        final t = _playerTracks[ni];
-        final qIdx = state.queue.indexWhere((x) => x.id == t.id);
-        if (qIdx >= 0 && qIdx != state.currentIndex) {
-          state = state.copyWith(currentIndex: qIdx);
-        }
+      _toppingUpNative = false;
+    }
+  }
+
+  /// Après un réordonnancement / retrait : on coupe la playlist native après le
+  /// titre courant puis on la recomplète dans le nouvel ordre de la file.
+  Future<void> _resyncNativeAhead() async {
+    if (_nativeSingleItem || _playlist == null) return;
+    final cur = state.currentTrack;
+    final pIdx = cur == null ? -1 : _playerTracks.indexWhere((t) => t.id == cur.id);
+    if (pIdx < 0) return;
+    if (pIdx + 1 < _playerTracks.length) {
+      _suppressIndexChange = true;
+      try {
+        await _playlist!.removeRange(pIdx + 1, _playerTracks.length);
+        _playerTracks = _playerTracks.sublist(0, pIdx + 1);
+      } finally {
+        _suppressIndexChange = false;
       }
     }
+    await _topUpNative();
   }
 
 
@@ -627,7 +941,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
     // Symfony : URL signée si l'audio n'est pas directement jouable
     if (!t.hasPlayableUrl && t.apiId != null) {
-      final signed = await TrackService.getSignedAudioUrl(t.apiId!);
+      final signed = await _signedUrlFor(t.apiId!);
       if (signed != null && signed.isNotEmpty) t = t.copyWith(audioUrl: signed);
     }
 
@@ -643,7 +957,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (t.hasPlayableUrl) return t;
     if (t.needsStream) return null; // résolu uniquement quand la track devient courante
     if (t.apiId != null) {
-      final signed = await TrackService.getSignedAudioUrl(t.apiId!);
+      final signed = await _signedUrlFor(t.apiId!);
       if (signed != null && signed.isNotEmpty) return t.copyWith(audioUrl: signed);
     }
     return null;
@@ -685,8 +999,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         sources.add(_audioSourceFor(r));
       }
       if (token != _playToken || _playlist == null || resolved.isEmpty) return;
-      _playerTracks = [..._playerTracks, ...resolved];
-      await _playlist!.addAll(sources);
+      if (!_nativeSingleItem) {
+        _playerTracks = [..._playerTracks, ...resolved];
+        await _playlist!.addAll(sources);
+      }
+      _source.addAll(resolved);
       state = state.copyWith(queue: [...state.queue, ...resolved]);
       mkLog('Mkzik 📻 radio +${resolved.length} titres (seed "${seed.title}")');
     } catch (e) {
@@ -733,27 +1050,41 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       // Reconstruction : [seed, R1, R2, …] — on retire tout ce qui précède le
       // courant pour que LoopMode.all ne reboucle jamais sur l'ancienne playlist.
       final seedTrack = _playerTracks[pIdx];
-      _suppressIndexChange = true;
-      try {
-        // 1) Retire les titres APRÈS le courant
-        if (pIdx + 1 < _playerTracks.length) {
-          await _playlist!.removeRange(pIdx + 1, _playerTracks.length);
+      if (!_nativeSingleItem) {
+        _suppressIndexChange = true;
+        try {
+          // 1) Retire les titres APRÈS le courant
+          if (pIdx + 1 < _playerTracks.length) {
+            await _playlist!.removeRange(pIdx + 1, _playerTracks.length);
+          }
+          // 2) Retire les titres AVANT le courant (courant passe en index 0)
+          if (pIdx > 0) {
+            await _playlist!.removeRange(0, pIdx);
+          }
+          // 3) Ajoute les suggestions radio
+          await _playlist!.addAll(sources);
+          _playerTracks = [seedTrack, ...resolved];
+        } finally {
+          _suppressIndexChange = false;
         }
-        // 2) Retire les titres AVANT le courant (courant passe en index 0)
-        if (pIdx > 0) {
-          await _playlist!.removeRange(0, pIdx);
-        }
-        // 3) Ajoute les suggestions radio
-        await _playlist!.addAll(sources);
-        _playerTracks = [seedTrack, ...resolved];
-      } finally {
-        _suppressIndexChange = false;
       }
 
+      // La file Dart garde les titres déjà écoutés (affichés dans la file
+      // d'attente) : on ne remplace que ce qui suit le titre courant.
+      final history = state.queue.sublist(0, state.currentIndex.clamp(0, state.queue.length));
+      final newQueue = [...history, seed, ...resolved];
+      // La radio remplace tout ce qui suit le titre courant, y compris la suite
+      // de la liste d'origine non encore chargée.
+      final seedSrc = _source.indexWhere((t) => t.id == seed.id);
+      final firstSrc = history.isEmpty ? seedSrc : _source.indexWhere((t) => t.id == history.first.id);
+      _source = [if (firstSrc > 0) ..._source.sublist(0, firstSrc), ...newQueue];
+      _sourceFetch = null;
+      _sourceHasMore = false;
       state = state.copyWith(
-        queue: [seed, ...resolved],
-        currentIndex: 0,
+        queue: newQueue,
+        currentIndex: history.length,
       );
+      await _applyNativeLoopMode();
       _radioFromId = null; // autorise l'extension auto quand on atteindra la fin
       mkLog('Mkzik 📻 mode radio : ${resolved.length} titres (seed "${seed.title}")');
       return true;
@@ -764,6 +1095,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> togglePlayPause() async {
+    if (state.isLoading) return;
     if (_audio.playing) {
       await _audio.pause();
     } else {
@@ -780,10 +1112,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       await _audio.seekToNext();
       return;
     }
-    final q = state.queue;
-    if (q.length < 2) return;
-    final nextIdx = (state.currentIndex + 1) % q.length;
-    await playTrack(q[nextIdx], queue: q);
+    await _advanceFromQueue();
   }
 
   Future<void> previous() async {
@@ -792,10 +1121,110 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       await _audio.seekToPrevious();
       return;
     }
+    final cur = state.currentTrack;
+    if (cur == null || _source.length < 2) return;
+    final srcIdx = _source.indexWhere((t) => t.id == cur.id);
+    final prevIdx = srcIdx <= 0 ? _source.length - 1 : srcIdx - 1;
+    await _playFromSource(_source[prevIdx]);
+  }
+
+  // ── File fenêtrée : extension progressive ───────────────────────────────────
+
+  /// Étend la fenêtre si le titre courant approche d'un bord.
+  Future<void> _ensureWindow() async {
     final q = state.queue;
-    if (q.length < 2) return;
-    final prevIdx = (state.currentIndex - 1 + q.length) % q.length;
-    await playTrack(q[prevIdx], queue: q);
+    if (q.isEmpty) return;
+    if (state.currentIndex >= q.length - 3) await loadMoreUpcoming();
+    if (state.currentIndex < 3) await loadMorePrevious();
+  }
+
+  /// Ajoute jusqu'à [_kWindow] titres suivants à la file : depuis la liste déjà
+  /// connue, sinon via la page suivante de l'API.
+  Future<void> loadMoreUpcoming() async {
+    if (_extendingForward || state.queue.isEmpty) return;
+    _extendingForward = true;
+    final epoch = _queueEpoch;
+    try {
+      var lastSrc = _source.indexWhere((t) => t.id == state.queue.last.id);
+      if (lastSrc < 0) return;
+      if (lastSrc + 1 >= _source.length && _sourceFetch != null && _sourceHasMore) {
+        final page = await _sourceFetch!(limit: _sourcePageSize, offset: _sourceFetchedCount);
+        if (epoch != _queueEpoch) return;
+        _sourceFetchedCount += page.length;
+        _sourceHasMore = page.length >= _sourcePageSize;
+        final known = {for (final t in _source) t.id};
+        _source.addAll(page.where((t) => known.add(t.id)));
+        lastSrc = _source.indexWhere((t) => t.id == state.queue.last.id);
+        if (lastSrc < 0) return;
+      }
+      final more = _source.sublist(lastSrc + 1, (lastSrc + 1 + _kWindow).clamp(0, _source.length));
+      if (more.isEmpty) return;
+      state = state.copyWith(queue: [...state.queue, ...more]);
+      await _topUpNative();
+    } catch (e) {
+      mkLog('Mkzik ▶ extension de la file impossible : $e');
+    } finally {
+      _extendingForward = false;
+    }
+  }
+
+  /// Ajoute jusqu'à [_kWindow] titres précédents (toujours déjà connus).
+  Future<void> loadMorePrevious() async {
+    if (_extendingBackward || state.queue.isEmpty) return;
+    _extendingBackward = true;
+    try {
+      final firstSrc = _source.indexWhere((t) => t.id == state.queue.first.id);
+      if (firstSrc <= 0) return;
+      final more = _source.sublist((firstSrc - _kWindow).clamp(0, firstSrc), firstSrc);
+      state = state.copyWith(
+        queue: [...more, ...state.queue],
+        currentIndex: state.currentIndex + more.length,
+      );
+    } finally {
+      _extendingBackward = false;
+    }
+  }
+
+  bool get loadedAllPrevious =>
+      state.queue.isEmpty || _source.indexWhere((t) => t.id == state.queue.first.id) <= 0;
+
+  bool get loadedAllUpcoming =>
+      state.queue.isEmpty ||
+      (!_sourceHasMore && _source.indexWhere((t) => t.id == state.queue.last.id) >= _source.length - 1);
+
+  /// Résout des titres pour la playlist native (URL signée en lot / flux Python).
+  Future<List<Track?>> _resolveBatch(List<Track> tracks) async {
+    final signed = await _signedUrlsFor([
+      for (final t in tracks)
+        if (!t.hasPlayableUrl && !t.needsStream && t.apiId != null) t.apiId!,
+    ]);
+    return [
+      for (final t in tracks)
+        if (t.hasPlayableUrl)
+          t
+        else if (t.needsStream)
+          (t.pageUrl.isNotEmpty ? t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl)) : null)
+        else
+          (t.apiId != null && signed[t.apiId!] != null ? t.copyWith(audioUrl: signed[t.apiId!]) : null),
+    ];
+  }
+
+  /// Remplace la portion de [_source] couverte par [oldWindow] par [newWindow]
+  /// (après un ajout / retrait / réordonnancement dans la file affichée).
+  void _replaceWindowInSource(List<Track> oldWindow, List<Track> newWindow) {
+    if (oldWindow.isEmpty) {
+      _source = [...newWindow];
+      return;
+    }
+    final start = _source.indexWhere((t) => t.id == oldWindow.first.id);
+    final end = _source.indexWhere((t) => t.id == oldWindow.last.id);
+    if (start < 0 || end < start) return;
+    final ids = {for (final t in newWindow) t.id};
+    _source = [
+      ..._source.sublist(0, start).where((t) => !ids.contains(t.id)),
+      ...newWindow,
+      ..._source.sublist(end + 1).where((t) => !ids.contains(t.id)),
+    ];
   }
 
   Future<void> seekTo(Duration position) async {
@@ -862,7 +1291,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     //   la file UI mais PAS à la playlist native → sauté à l'auto-avance).
     var t = track;
     if (!t.hasPlayableUrl && !t.needsImport && t.apiId != null) {
-      final signed = await TrackService.getSignedAudioUrl(t.apiId!);
+      final signed = await _signedUrlFor(t.apiId!);
       if (signed != null && signed.isNotEmpty) t = t.copyWith(audioUrl: signed);
     } else if (t.needsStream && t.pageUrl.isNotEmpty && !t.hasPlayableUrl) {
       t = t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
@@ -878,11 +1307,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // L'index courant peut se décaler si on insère avant lui
     var idx = state.currentIndex;
     if (insertAt <= idx) idx += 1;
+    _replaceWindowInSource(state.queue, list);
     state = state.copyWith(queue: list, currentIndex: idx);
 
-    // Reflète l'ajout dans la playlist native dès que le titre est jouable
-    // (URL signée OU flux temps réel — les externes stream comptent aussi)
-    if (_playlist != null && t.audioUrl.isNotEmpty) {
+    // Reflète l'ajout dans la playlist native — jamais pour un flux Python
+    // (needsStream) : ExoPlayer/AVPlayer précharge dès l'insertion, ce qui
+    // appellerait Python avant que ce titre ne soit réellement courant. Il
+    // sera résolu à la volée à son tour (cf. _advanceFromQueue).
+    if (!_nativeSingleItem && !t.needsStream && _playlist != null && t.audioUrl.isNotEmpty) {
       final playerInsert = playNext
           ? ((_audio.currentIndex ?? 0) + 1).clamp(0, _playerTracks.length)
           : _playerTracks.length;
@@ -901,7 +1333,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (pIdx >= 0) {
       await _audio.seek(Duration.zero, index: pIdx); // titre déjà dans la playlist
     } else {
-      await playTrack(t, queue: state.queue); // externe/non résolu → résout + recharge
+      await _playFromSource(t); // externe/non résolu → résout + recharge
     }
   }
 
@@ -913,6 +1345,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final list = [...state.queue]..removeAt(index);
     var idx = state.currentIndex;
     if (index < idx) idx -= 1; // décalage si on retire avant le courant
+    _replaceWindowInSource(state.queue, list);
     state = state.copyWith(queue: list, currentIndex: idx);
 
     // Reflète la suppression dans la playlist native
@@ -921,6 +1354,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       _playerTracks.removeAt(pIdx);
       _playlist!.removeAt(pIdx);
     }
+    unawaited(_topUpNative());
   }
 
   /// Réordonne la file (drag & drop) en gardant le titre courant synchronisé.
@@ -930,20 +1364,17 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // Convention ReorderableListView : ajuster newIndex si on descend l'élément
     if (newIndex > oldIndex) newIndex -= 1;
     if (newIndex < 0 || newIndex >= list.length) return;
-    final mirrors = _playlist != null && _playerTracks.length == list.length;
     final item = list.removeAt(oldIndex);
     list.insert(newIndex, item);
     // Recalcule l'index courant via l'id du titre joué
     final curId = state.currentTrack?.id;
     final newCur = curId == null ? state.currentIndex : list.indexWhere((t) => t.id == curId);
+    _replaceWindowInSource(state.queue, list);
     state = state.copyWith(queue: list, currentIndex: newCur < 0 ? state.currentIndex : newCur);
 
-    // Applique le même déplacement à la playlist native (si elle reflète la file 1:1)
-    if (mirrors) {
-      final moved = _playerTracks.removeAt(oldIndex);
-      _playerTracks.insert(newIndex, moved);
-      _playlist!.move(oldIndex, newIndex);
-    }
+    // La playlist native ne précharge que quelques suivants : on la recompose
+    // après le titre courant dans le nouvel ordre.
+    unawaited(_resyncNativeAhead());
   }
 
   Future<void> toggleShuffle() async {
@@ -956,8 +1387,41 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   // Pas d'état "off" → prev/next restent cycliques et stables dans la notif.
   Future<void> cycleRepeat() async {
     final next = state.repeatMode == RepeatMode.one ? RepeatMode.all : RepeatMode.one;
-    await _audio.setLoopMode(_loopFor(next));
     state = state.copyWith(repeatMode: next);
+    await _applyNativeLoopMode();
+  }
+
+  /// Windows : la playlist native ne contient pas les flux Python (WinRT les
+  /// ouvre en avance et lève des decodeError qu'on ne sait pas attribuer).
+  /// Si elle ne couvre pas toute la file, la boucle native est coupée et
+  /// l'enchaînement se fait depuis `state.queue` (cf. [_advanceFromQueue]).
+  /// Vrai si la playlist native contient toute la liste (rien à charger en plus)
+  /// → la boucle native peut gérer l'enchaînement seule.
+  bool get _nativeCoversQueue =>
+      _playerTracks.length >= state.queue.length &&
+      state.queue.length >= _source.length &&
+      !_sourceHasMore;
+
+  Future<void> _applyNativeLoopMode() async {
+    final mode = state.repeatMode == RepeatMode.one
+        ? LoopMode.one
+        : (_nativeCoversQueue ? _loopFor(state.repeatMode) : LoopMode.off);
+    await _audio.setLoopMode(mode);
+  }
+
+  /// Titre suivant de la liste (charge la suite si besoin), en boucle.
+  Future<void> _advanceFromQueue() async {
+    if (state.isLoading) return;
+    final cur = state.currentTrack;
+    if (cur == null) return;
+    var srcIdx = _source.indexWhere((t) => t.id == cur.id);
+    if (srcIdx >= _source.length - 1 && _sourceHasMore) {
+      await loadMoreUpcoming();
+      srcIdx = _source.indexWhere((t) => t.id == cur.id);
+    }
+    if (_source.length < 2) return;
+    final nextIdx = (srcIdx + 1) % _source.length;
+    await _playFromSource(_source[nextIdx]);
   }
 
   @override

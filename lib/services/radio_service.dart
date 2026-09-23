@@ -21,7 +21,12 @@ class RadioService {
           return SuggestionService.youtubeRelated(seed.pageUrl);
         case ExtPlatform.soundcloud:
           return SuggestionService.soundcloudRelated(seed.pageUrl);
+        case ExtPlatform.bandcamp:
+        case ExtPlatform.audiomack:
+        case ExtPlatform.mixcloud:
         case ExtPlatform.other:
+          // Pas de route "related" pour ces plateformes — repli sur la
+          // recherche titre+artiste ci-dessous.
           break;
       }
     }

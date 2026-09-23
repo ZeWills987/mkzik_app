@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 import '../../providers/notifications_provider.dart';
 import '../../widgets/mini_player.dart' show miniPlayerListPadding;
+import '../../widgets/profile_menu_button.dart';
 import '../../widgets/tappable.dart';
 import '../notifications/notifications_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/track.dart';
 import '../../models/track_visuals.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/imports_provider.dart';
 import '../../providers/paginated_tracks_provider.dart';
+import '../../providers/profile_provider.dart';
 import '../../config/api_config.dart';
+import '../../services/track_service.dart';
 import '../../widgets/track_card.dart';
 import '../../widgets/track_cover.dart';
 import '../../theme/app_theme.dart';
@@ -103,7 +107,13 @@ class HomeScreen extends ConsumerWidget {
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             itemCount: tracks.length,
                             separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
-                            itemBuilder: (_, i) => TrackCard(track: tracks[i], queue: tracks, showPublishedAt: true),
+                            itemBuilder: (_, i) => TrackCard(
+                              track: tracks[i],
+                              queue: tracks,
+                              showPublishedAt: true,
+                              fetchMore: ({required int limit, required int offset}) =>
+                                  TrackService.getNewsFeed(limit: limit, offset: offset),
+                            ),
                           ),
               ),
             ),
@@ -141,7 +151,12 @@ class HomeScreen extends ConsumerWidget {
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             itemCount: historyTracks.length,
                             separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
-                            itemBuilder: (_, i) => TrackCard(track: historyTracks[i], queue: historyTracks),
+                            itemBuilder: (_, i) => TrackCard(
+                              track: historyTracks[i],
+                              queue: historyTracks,
+                              fetchMore: ({required int limit, required int offset}) =>
+                                  TrackService.getHistoryPlay(limit: limit, offset: offset),
+                            ),
                           ),
               ),
             ),
@@ -195,7 +210,11 @@ class HomeScreen extends ConsumerWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           itemCount: importTracks.length,
                           separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
-                          itemBuilder: (_, i) => TrackCard(track: importTracks[i], queue: importTracks),
+                          itemBuilder: (_, i) => TrackCard(
+                            track: importTracks[i],
+                            queue: importTracks,
+                            fetchMore: ref.read(importsProvider.notifier).fetcher,
+                          ),
                         ),
                 ),
               ),
@@ -328,12 +347,20 @@ class _Header extends StatelessWidget {
             );
           }),
           const SizedBox(width: 10),
-          // Avatar profil (cercle violet)
-          Container(
-            width: 38,
-            height: 38,
-            decoration: const BoxDecoration(color: kAccent, shape: BoxShape.circle),
-          ),
+          // Avatar profil : même menu (modifier, YouTube, publier, paramètres…)
+          // que sur l'onglet Profil.
+          Consumer(builder: (context, ref, _) {
+            final username = ref.watch(authProvider.select((s) => s.username));
+            if (username == null || username.isEmpty) {
+              return const CircleAvatar(radius: 19, backgroundColor: kAccent);
+            }
+            final profileAsync = ref.watch(profileProvider(username));
+            return profileAsync.when(
+              loading: () => const CircleAvatar(radius: 19, backgroundColor: kAccent),
+              error: (_, _) => const CircleAvatar(radius: 19, backgroundColor: kAccent),
+              data: (profile) => ProfileMenuButton(profile: profile, size: 38),
+            );
+          }),
         ],
       ),
     );

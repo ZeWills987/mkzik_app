@@ -13,6 +13,8 @@ import '../../services/external_track_service.dart';
 import '../../services/track_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/tappable.dart';
+import '../../widgets/ambient_background.dart';
+import '../../widgets/track_actions.dart' show kBandcampTeal, kAudiomackOrange, kMixcloudBlue;
 import '../../widgets/track_cover.dart';
 import '../../widgets/notice_banner.dart';
 import '../../widgets/mini_player.dart';
@@ -119,6 +121,8 @@ class _TrackPageState extends ConsumerState<TrackPage> {
               ),
             ),
           ),
+          // Halos de couleur qui dérivent lentement (ambiance façon Spotify)
+          Positioned.fill(child: AmbientBackground(colors: colors, opacity: 0.28)),
 
           SafeArea(
             child: SingleChildScrollView(
@@ -368,11 +372,18 @@ class _PlatformBadges extends StatelessWidget {
   Widget build(BuildContext context) {
     final tags = <Widget>[];
     final p = track.platforms.map((e) => e.toLowerCase()).join(' ');
-    final isYt = p.contains('youtube') || track.source == 'ytm';
-    final isSc = p.contains('soundcloud') || track.source == 'sc';
+    final s = track.source.toLowerCase();
+    final isYt = p.contains('youtube') || s == 'ytm';
+    final isSc = p.contains('soundcloud') || s == 'sc';
+    final isBandcamp = p.contains('bandcamp') || s == 'bandcamp';
+    final isAudiomack = p.contains('audiomack') || s == 'audiomack';
+    final isMixcloud = p.contains('mixcloud') || s == 'mixcloud';
 
     if (isYt) tags.add(_badge('YouTube', const Color(0xFFFF0000), Icons.smart_display));
     if (isSc) tags.add(_badge('SoundCloud', const Color(0xFFFF7700), Icons.cloud));
+    if (isBandcamp) tags.add(_badge('Bandcamp', kBandcampTeal, Icons.album));
+    if (isAudiomack) tags.add(_badge('Audiomack', kAudiomackOrange, Icons.graphic_eq_rounded));
+    if (isMixcloud) tags.add(_badge('Mixcloud', kMixcloudBlue, Icons.radio_rounded));
     if (tags.isEmpty) return const SizedBox.shrink();
 
     return Row(

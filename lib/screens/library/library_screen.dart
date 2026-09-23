@@ -208,7 +208,11 @@ Widget _favouritesSliver(BuildContext context, WidgetRef ref, PagedTracksState f
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: TrackResultRow(
           track: tracks[i],
-          onTap: () => ref.read(playerProvider.notifier).playTrack(tracks[i], queue: tracks),
+          onTap: () {
+            final paged = ref.read(favouritesProvider.notifier);
+            ref.read(playerProvider.notifier).playTrack(tracks[i],
+                queue: tracks, fetchMore: paged.fetcher, pageSize: paged.pageSize, hasMore: fav.hasMore);
+          },
           onMenu: () => showTrackActionsSheet(context, ref, tracks[i]),
         ),
       ),
@@ -235,7 +239,11 @@ Widget _importsSliver(BuildContext context, WidgetRef ref, PagedTracksState imp)
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: TrackResultRow(
           track: tracks[i],
-          onTap: () => ref.read(playerProvider.notifier).playTrack(tracks[i], queue: tracks),
+          onTap: () {
+            final paged = ref.read(importsProvider.notifier);
+            ref.read(playerProvider.notifier).playTrack(tracks[i],
+                queue: tracks, fetchMore: paged.fetcher, pageSize: paged.pageSize, hasMore: imp.hasMore);
+          },
           onMenu: () => showTrackActionsSheet(context, ref, tracks[i]),
         ),
       ),

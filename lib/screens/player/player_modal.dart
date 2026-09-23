@@ -10,6 +10,7 @@ import '../../models/track_visuals.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/notice_provider.dart';
 import '../../widgets/current_list_sheet.dart';
+import '../../widgets/ambient_background.dart';
 import '../../widgets/track_cover.dart';
 import '../../widgets/track_actions.dart';
 import '../../widgets/tappable.dart';
@@ -224,6 +225,11 @@ class _PlayerModalState extends ConsumerState<PlayerModal>
               ),
             ),
           ],
+
+          // Halos de couleur qui dérivent lentement (ambiance façon Spotify)
+          Positioned.fill(
+            child: AmbientBackground(colors: colors, opacity: coverUrl.isNotEmpty ? 0.30 : 0.50),
+          ),
 
           // Scrim sombre vertical → lisibilité du texte et des contrôles
           Positioned.fill(

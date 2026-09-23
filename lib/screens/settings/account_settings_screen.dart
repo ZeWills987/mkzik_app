@@ -5,6 +5,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/window_prefs.dart';
 
 class AccountSettingsScreen extends ConsumerStatefulWidget {
   const AccountSettingsScreen({super.key});
@@ -41,10 +42,25 @@ class _AccountSettingsScreenState extends ConsumerState<AccountSettingsScreen> {
   bool _obscureDel = true;
   bool _obscureDelConfirm = true;
 
+  // Plein écran (Windows/macOS/Linux)
+  bool _fullScreen = false;
+  bool _fullScreenLoading = true;
+
   @override
   void initState() {
     super.initState();
     _loadSessions();
+    if (WindowPrefs.supported) _loadFullScreenState();
+  }
+
+  Future<void> _loadFullScreenState() async {
+    final v = await WindowPrefs.isFullScreen();
+    if (mounted) setState(() { _fullScreen = v; _fullScreenLoading = false; });
+  }
+
+  Future<void> _toggleFullScreen(bool v) async {
+    setState(() => _fullScreen = v);
+    await WindowPrefs.setFullScreen(v);
   }
 
   Future<void> _loadSessions() async {
@@ -322,6 +338,30 @@ class _AccountSettingsScreenState extends ConsumerState<AccountSettingsScreen> {
               loading: _pwdLoading,
               onPressed: _changePassword,
             ),
+
+            // ── Affichage (desktop) ─────────────────────────────────────────
+            if (WindowPrefs.supported) ...[
+              const SizedBox(height: 8),
+              Divider(color: kBorder, height: 36),
+              _sectionTitle('Affichage'),
+              Container(
+                decoration: BoxDecoration(
+                  color: kSurface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: kBorder),
+                ),
+                child: SwitchListTile(
+                  value: _fullScreen,
+                  onChanged: _fullScreenLoading ? null : _toggleFullScreen,
+                  activeThumbColor: kAccent,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  title: const Text('Plein écran',
+                      style: TextStyle(color: kTextPrimary, fontSize: 13.5, fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Lance Mkzik en plein écran la prochaine fois',
+                      style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                ),
+              ),
+            ],
 
             const SizedBox(height: 8),
             Divider(color: kBorder, height: 36),

@@ -57,6 +57,14 @@ dependencies:
   url_launcher: ^6.3.0
   app_links: ^6.3.4
   google_sign_in: ^6.2.2
+  # Contrôle de la fenêtre (plein écran) sur Windows/macOS/Linux.
+  window_manager: ^0.5.0
+  # Réception du partage depuis d'autres apps (TikTok, etc.) → identification
+  # du titre via Python. Android uniquement pour l'instant (iOS requiert une
+  # extension Share ajoutée manuellement dans Xcode).
+  # Version pinnée : 1.9.0 exige compileSdk 37, au-delà du max recommandé par
+  # l'AGP actuel (9.0.1 → 36).
+  receive_sharing_intent: 1.8.1
 
 dev_dependencies:
   flutter_test:

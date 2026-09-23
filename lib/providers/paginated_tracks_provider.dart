@@ -59,6 +59,10 @@ class PagedTracksNotifier extends StateNotifier<PagedTracksState> {
     loadInitial();
   }
 
+  /// Chargeur de pages, réutilisable par le player pour étendre sa file
+  /// indépendamment de la durée de vie de ce notifier.
+  TrackPageFetcher get fetcher => _fetch;
+
   bool _hasMore(List<Track> allTracks, List<Track> lastPage) {
     final total = _getTotal?.call();
     if (total != null) return allTracks.length < total;

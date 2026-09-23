@@ -57,3 +57,6 @@ android/app/google-services.json
 android/app/*.keystore
 android/key.properties
 ios/Runner/GoogleService-Info.plist
+
+# Keystore encodé pour le secret GitHub — ne jamais commiter
+android/app/keystore_b64.txt

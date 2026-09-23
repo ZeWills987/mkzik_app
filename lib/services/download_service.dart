@@ -20,10 +20,9 @@ class DownloadService {
     void Function(String message)? onError,
   }) async {
     try {
-      // Auth : le token passe désormais dans l'en-tête `Authorization` (standard,
-      // moins exposé que dans le corps qui peut finir dans les logs serveur).
-      // ⚠️ Le token reste aussi dans le body en repli le temps que le service
-      // Python lise l'en-tête ; à supprimer du body une fois le backend à jour.
+      // Auth : uniquement dans l'en-tête `Authorization` (standard) — retiré
+      // du corps de la requête (confirmé lu côté Python) pour ne pas dupliquer
+      // le JWT dans un endroit plus susceptible de finir dans des logs serveur.
       final token = ApiConfig.token;
       final authHeaders = <String, String>{
         'Content-Type': 'application/json',
@@ -36,7 +35,7 @@ class DownloadService {
       final startRes = await http
           .post(startUri,
               headers: authHeaders,
-              body: jsonEncode({'url': track.pageUrl, 'token': token}))
+              body: jsonEncode({'url': track.pageUrl}))
           .timeout(const Duration(seconds: 15));
 
       if (startRes.statusCode != 200) {

@@ -88,6 +88,12 @@ class Track {
     if (source == 'sc') {
       return (platform: 'soundcloud', externalId: pageUrl);
     }
+    // Plateformes "directes" (Bandcamp, Audiomack, Mixcloud) : pas d'id
+    // extractible d'une query param comme YouTube → même logique que
+    // SoundCloud, l'URL de page entière sert d'identifiant.
+    if (source == 'bandcamp' || source == 'audiomack' || source == 'mixcloud') {
+      return (platform: source, externalId: pageUrl);
+    }
     return null;
   }
 
@@ -241,8 +247,8 @@ class Track {
   int get hashCode => id.hashCode;
 }
 
-/// Plateforme externe d'origine d'un titre (recherche YouTube Music / SoundCloud).
-enum ExtPlatform { youtubeMusic, soundcloud, other }
+/// Plateforme externe d'origine d'un titre.
+enum ExtPlatform { youtubeMusic, soundcloud, bandcamp, audiomack, mixcloud, other }
 
 extension TrackExtPlatform on Track {
   /// Déduit la plateforme d'origine depuis `source` ('ytm'/'sc') ou `platforms`.
@@ -259,6 +265,9 @@ extension TrackExtPlatform on Track {
         p.contains('soundcloud') || p.contains('sound')) {
       return ExtPlatform.soundcloud;
     }
+    if (s.contains('bandcamp') || p.contains('bandcamp')) return ExtPlatform.bandcamp;
+    if (s.contains('audiomack') || p.contains('audiomack')) return ExtPlatform.audiomack;
+    if (s.contains('mixcloud') || p.contains('mixcloud')) return ExtPlatform.mixcloud;
     return ExtPlatform.other;
   }
 
@@ -273,10 +282,16 @@ extension TrackExtPlatform on Track {
     final s = source.toLowerCase();
     if (s == 'ytm' || s == 'yt' || s.contains('youtube')) found.add(ExtPlatform.youtubeMusic);
     if (s == 'sc' || s.contains('soundcloud') || s.contains('sound')) found.add(ExtPlatform.soundcloud);
+    if (s.contains('bandcamp')) found.add(ExtPlatform.bandcamp);
+    if (s.contains('audiomack')) found.add(ExtPlatform.audiomack);
+    if (s.contains('mixcloud')) found.add(ExtPlatform.mixcloud);
     for (final raw in platforms) {
       final p = raw.toLowerCase();
       if (p.contains('youtube') || p.contains('ytm')) found.add(ExtPlatform.youtubeMusic);
       if (p.contains('soundcloud') || p.contains('sound')) found.add(ExtPlatform.soundcloud);
+      if (p.contains('bandcamp')) found.add(ExtPlatform.bandcamp);
+      if (p.contains('audiomack')) found.add(ExtPlatform.audiomack);
+      if (p.contains('mixcloud')) found.add(ExtPlatform.mixcloud);
     }
     return found.toList();
   }

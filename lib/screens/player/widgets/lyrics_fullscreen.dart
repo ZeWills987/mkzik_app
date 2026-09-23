@@ -7,6 +7,7 @@ import '../../../models/track.dart';
 import '../../../models/track_visuals.dart';
 import '../../../providers/player_provider.dart';
 import '../../../utils/media.dart';
+import '../../../widgets/ambient_background.dart';
 import '../../../widgets/track_cover.dart';
 import 'player_lyrics_view.dart';
 
@@ -80,6 +81,13 @@ class LyricsFullscreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+              // Halos de couleur qui dérivent lentement (ambiance façon Spotify)
+              Positioned.fill(
+                child: AmbientBackground(
+                  colors: track.gradientColors,
+                  opacity: coverUrl.isNotEmpty ? 0.28 : 0.46,
+                ),
+              ),
               // Scrim sombre pour la lisibilité
               Positioned.fill(
                 child: DecoratedBox(

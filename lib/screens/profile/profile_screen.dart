@@ -17,12 +17,9 @@ import '../../utils/media.dart';
 import '../../widgets/track_actions.dart';
 import '../../widgets/notice_banner.dart';
 import '../../widgets/mini_player.dart';
-import '../settings/account_settings_screen.dart';
-import '../upload/upload_track_screen.dart';
-import '../upload/upload_album_screen.dart';
+import '../../widgets/profile_menu_button.dart';
 import 'album_detail_screen.dart';
 import 'edit_profile_screen.dart';
-import 'youtube_screen.dart';
 
 class ProfileScreen extends ConsumerWidget {
   /// null = profil de l'utilisateur connecté (onglet Profil).
@@ -100,10 +97,7 @@ class ProfileScreen extends ConsumerWidget {
                     showBack: pushed,
                     onBack: () => Navigator.of(context).maybePop(),
                     onEdit: () => EditProfileScreen.open(context, profile, resolved),
-                    onMenuAction: isOwn && !pushed
-                        ? (action) => _handleMenu(context, ref, action,
-                              onEdit: () => EditProfileScreen.open(context, profile, resolved))
-                        : null,
+                    showMenu: isOwn && !pushed,
                   ),
                 ),
                 SliverToBoxAdapter(child: _StatsCard(profile: profile)),
@@ -153,9 +147,16 @@ class ProfileScreen extends ConsumerWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: TrackResultRow(
                             track: track,
-                            onTap: () => ref
-                                .read(playerProvider.notifier)
-                                .playTrack(track, queue: tracks.tracks),
+                            onTap: () {
+                              final paged = ref.read(profileTracksProvider(resolved).notifier);
+                              ref.read(playerProvider.notifier).playTrack(
+                                    track,
+                                    queue: tracks.tracks,
+                                    fetchMore: paged.fetcher,
+                                    pageSize: paged.pageSize,
+                                    hasMore: tracks.hasMore,
+                                  );
+                            },
                             onMenu: () => showTrackActionsSheet(context, ref, track),
                           ),
                         );
@@ -185,26 +186,7 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  void _handleMenu(BuildContext context, WidgetRef ref, _MenuAction action,
-      {required VoidCallback onEdit}) {
-    switch (action) {
-      case _MenuAction.editProfile:
-        onEdit();
-      case _MenuAction.youtube:
-        YoutubeScreen.open(context);
-      case _MenuAction.uploadTrack:
-        UploadTrackScreen.open(context);
-      case _MenuAction.uploadAlbum:
-        UploadAlbumScreen.open(context);
-      case _MenuAction.settings:
-        AccountSettingsScreen.open(context);
-      case _MenuAction.logout:
-        ref.read(authProvider.notifier).logout();
-    }
-  }
 }
-
-enum _MenuAction { editProfile, youtube, uploadTrack, uploadAlbum, settings, logout }
 
 // ── Hero : cover + avatar + nom + boutons ─────────────────────────────────────
 
@@ -214,7 +196,7 @@ class _Hero extends StatelessWidget {
   final bool showBack;
   final VoidCallback onBack;
   final VoidCallback onEdit;
-  final void Function(_MenuAction)? onMenuAction;
+  final bool showMenu;
 
   const _Hero({
     required this.profile,
@@ -222,7 +204,7 @@ class _Hero extends StatelessWidget {
     required this.showBack,
     required this.onBack,
     required this.onEdit,
-    required this.onMenuAction,
+    required this.showMenu,
   });
 
   @override
@@ -289,14 +271,13 @@ class _Hero extends StatelessWidget {
                 ),
 
               // Menu avatar (haut droite) sur son propre profil
-              if (onMenuAction != null)
+              if (showMenu)
                 Positioned(
                   top: 0, right: 4,
                   child: SafeArea(
-                    child: _AvatarMenuButton(
-                      profile: profile,
-                      accent: accent,
-                      onAction: onMenuAction!,
+                    child: Container(
+                      margin: const EdgeInsets.all(8),
+                      child: ProfileMenuButton(profile: profile, accent: accent, size: 36),
                     ),
                   ),
                 ),
@@ -322,77 +303,6 @@ class _Hero extends StatelessWidget {
           _FollowButton(username: profile.username, initialFollowing: profile.isFollowing),
         const SizedBox(height: 18),
       ],
-    );
-  }
-}
-
-// ── Menu avatar (PopupMenu) ───────────────────────────────────────────────────
-
-class _AvatarMenuButton extends StatelessWidget {
-  final Profile profile;
-  final Color accent;
-  final void Function(_MenuAction) onAction;
-
-  const _AvatarMenuButton({required this.profile, required this.accent, required this.onAction});
-
-  @override
-  Widget build(BuildContext context) {
-    final avatar = mediaUrl(profile.avatarUrl);
-    final initial = profile.username.isNotEmpty ? profile.username[0].toUpperCase() : '?';
-
-    return PopupMenuButton<_MenuAction>(
-      onSelected: onAction,
-      color: kSurface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: kBorderSoft),
-      ),
-      offset: const Offset(0, 44),
-      itemBuilder: (_) => [
-        _menuItem(_MenuAction.editProfile, Icons.edit_outlined, 'Modifier le profil'),
-        _menuItem(_MenuAction.youtube, Icons.music_video_outlined, 'YouTube Music',
-            color: const Color(0xFFFF0000)),
-        const PopupMenuDivider(height: 8),
-        _menuItem(_MenuAction.uploadTrack, Icons.cloud_upload_outlined, 'Publier une zik',
-            color: kAccent),
-        _menuItem(_MenuAction.uploadAlbum, Icons.album_outlined, 'Publier un album',
-            color: kAccent),
-        const PopupMenuDivider(height: 8),
-        _menuItem(_MenuAction.settings, Icons.manage_accounts_outlined, 'Paramètres'),
-        _menuItem(_MenuAction.logout, Icons.logout, 'Déconnexion',
-            color: kErrorText),
-      ],
-      child: Container(
-        margin: const EdgeInsets.all(8),
-        width: 36, height: 36,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.black.withValues(alpha: 0.35),
-          border: Border.all(color: accent.withValues(alpha: 0.6), width: 1.5),
-        ),
-        child: ClipOval(
-          child: avatar.isNotEmpty
-              ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
-              : Center(
-                  child: Text(initial,
-                      style: const TextStyle(color: Colors.white, fontSize: 15,
-                          fontWeight: FontWeight.w700)),
-                ),
-        ),
-      ),
-    );
-  }
-
-  PopupMenuItem<_MenuAction> _menuItem(_MenuAction action, IconData icon, String label,
-      {Color? color}) {
-    final c = color ?? kTextPrimary;
-    return PopupMenuItem(
-      value: action,
-      child: Row(children: [
-        Icon(icon, color: c, size: 18),
-        const SizedBox(width: 12),
-        Text(label, style: TextStyle(color: c, fontSize: 13.5, fontWeight: FontWeight.w500)),
-      ]),
     );
   }
 }

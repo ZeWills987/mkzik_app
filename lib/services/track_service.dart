@@ -18,6 +18,30 @@ class ExternalSearchEvent {
   const ExternalSearchEvent({this.source = '', this.tracks = const [], this.done = false, this.error});
 }
 
+/// URL audio signée S3 + date d'expiration (null si l'API ne la fournit pas).
+class SignedAudio {
+  final String url;
+  final DateTime? expiresAt;
+  const SignedAudio(this.url, this.expiresAt);
+
+  static SignedAudio? fromJson(dynamic data) {
+    if (data is! Map) return null;
+    final url = (data['audio_url'] ?? data['audioUrl'] ?? data['url'])?.toString() ?? '';
+    if (url.isEmpty) return null;
+    return SignedAudio(url, _parseExpiry(data['expires_at'] ?? data['expiresAt']));
+  }
+
+  // Timestamp Unix (secondes ou millisecondes) ou date ISO.
+  static DateTime? _parseExpiry(dynamic v) {
+    if (v is num) {
+      final n = v.toInt();
+      return DateTime.fromMillisecondsSinceEpoch(n > 100000000000 ? n : n * 1000);
+    }
+    if (v is String) return DateTime.tryParse(v) ?? _parseExpiry(int.tryParse(v));
+    return null;
+  }
+}
+
 /// Accès aux routes "tracks". Le HTTP/erreurs est délégué à [ApiClient] ;
 /// ici on ne fait que construire l'URL et parser le JSON en modèles.
 class TrackService {
@@ -163,7 +187,6 @@ class TrackService {
 
   /// `POST api/tracks/{id}/plays` → enregistre une écoute (historique). Fire-and-forget.
   static Future<void> recordPlay(int trackId) async {
-    if (!(ApiConfig.token?.isNotEmpty ?? false)) return;
     await ApiClient.postUri(_api('api/tracks/$trackId/plays'));
   }
 
@@ -199,27 +222,25 @@ class TrackService {
   }
 
   /// `GET api/tracks/{id}/audio` → { audio_url, expires_at }.
-  static Future<String?> getSignedAudioUrl(int trackId) async {
+  static Future<SignedAudio?> getSignedAudio(int trackId) async {
     final res = await ApiClient.getUri(_api('api/tracks/$trackId/audio'));
-    final data = res.orElse(null);
-    if (data is! Map) return null;
-    return (data['audio_url'] ?? data['audioUrl'] ?? data['url'])?.toString();
+    return SignedAudio.fromJson(res.orElse(null));
   }
 
   /// `POST api/tracks/sign-batch` body {ids} → `{ "<id>": {audio_url, expires_at} }`.
   /// Signe plusieurs titres en UNE requête (remplace la rafale de GET .../audio
   /// au chargement d'une file). Renvoie une map id → URL signée (ids absents
   /// de la réponse = non signables).
-  static Future<Map<int, String>> getSignedAudioUrlsBatch(List<int> ids) async {
+  static Future<Map<int, SignedAudio>> getSignedAudioBatch(List<int> ids) async {
     if (ids.isEmpty) return const {};
     final res = await ApiClient.postUri(_api('api/tracks/sign-batch'), body: {'ids': ids});
     final data = res.orElse(null);
     if (data is! Map) return const {};
-    final out = <int, String>{};
+    final out = <int, SignedAudio>{};
     data.forEach((key, value) {
       final id = int.tryParse('$key');
-      final url = value is Map ? (value['audio_url'] ?? value['audioUrl'])?.toString() : null;
-      if (id != null && url != null && url.isNotEmpty) out[id] = url;
+      final signed = SignedAudio.fromJson(value);
+      if (id != null && signed != null) out[id] = signed;
     });
     return out;
   }

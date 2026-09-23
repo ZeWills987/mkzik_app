@@ -90,6 +90,9 @@ class ExternalBadge extends StatelessWidget {
 // Couleurs de marque des plateformes externes.
 const kYtMusicRed = Color(0xFFFF0000);
 const kSoundcloudOrange = Color(0xFFFF5500);
+const kBandcampTeal = Color(0xFF1DA0C3);
+const kAudiomackOrange = Color(0xFFFF7A00);
+const kMixcloudBlue = Color(0xFF52AAD8);
 
 /// Logo de la plateforme externe (YouTube Music = rond rouge + ▶, SoundCloud = nuage orange).
 class PlatformLogo extends StatelessWidget {
@@ -109,6 +112,12 @@ class PlatformLogo extends StatelessWidget {
         );
       case ExtPlatform.soundcloud:
         return Icon(Icons.cloud, color: kSoundcloudOrange, size: size + 3);
+      case ExtPlatform.bandcamp:
+        return Icon(Icons.album, color: kBandcampTeal, size: size);
+      case ExtPlatform.audiomack:
+        return Icon(Icons.graphic_eq_rounded, color: kAudiomackOrange, size: size);
+      case ExtPlatform.mixcloud:
+        return Icon(Icons.radio_rounded, color: kMixcloudBlue, size: size);
       case ExtPlatform.other:
         return const ExternalBadge();
     }
@@ -444,6 +453,41 @@ class _MenuItem extends StatelessWidget {
   }
 }
 
+Future<String?> _askPlaylistName(BuildContext context) {
+  final controller = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: kSheetBg,
+      title: const Text('Nouvelle playlist',
+          style: TextStyle(color: kTextPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        style: const TextStyle(color: kTextPrimary),
+        cursorColor: kAccent,
+        textCapitalization: TextCapitalization.sentences,
+        decoration: const InputDecoration(
+          hintText: 'Nom de la playlist',
+          hintStyle: TextStyle(color: kTextSecondary),
+          focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: kAccent)),
+        ),
+        onSubmitted: (v) => Navigator.pop(ctx, v),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Annuler', style: TextStyle(color: kTextSecondary)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, controller.text),
+          child: const Text('Créer', style: TextStyle(color: kAccent, fontWeight: FontWeight.w700)),
+        ),
+      ],
+    ),
+  );
+}
+
 /// Ouvre une feuille pour ajouter [track] à une des playlists de l'utilisateur.
 void showAddToPlaylistSheet(BuildContext context, WidgetRef ref, Track track) {
   if (track.apiId == null) {
@@ -452,25 +496,49 @@ void showAddToPlaylistSheet(BuildContext context, WidgetRef ref, Track track) {
   }
   showAdaptiveSheet(
     context: context,
-    builder: (_) => _AddToPlaylistSheet(track: track),
+    builder: (_) => _AddToPlaylistSheet(track: track, hostContext: context),
   );
 }
 
 class _AddToPlaylistSheet extends ConsumerWidget {
   final Track track;
-  const _AddToPlaylistSheet({required this.track});
+  // Contexte de l'écran appelant : reste valide après la fermeture du sheet
+  // (nécessaire pour ouvrir le dialog de création).
+  final BuildContext hostContext;
+  const _AddToPlaylistSheet({required this.track, required this.hostContext});
 
-  Future<void> _add(BuildContext context, WidgetRef ref, Playlist pl) async {
+  // Le `ref` du sheet est invalide une fois celui-ci fermé → on passe par le
+  // conteneur Riverpod, capturé avant le pop.
+  Future<void> _add(BuildContext context, Playlist pl) async {
+    final container = ProviderScope.containerOf(context, listen: false);
     Navigator.pop(context);
+    await _addTo(container, pl);
+  }
+
+  Future<void> _addTo(ProviderContainer container, Playlist pl) async {
     final ok = await PlaylistService.addTrack(pl.id, track.apiId!);
-    final notifier = ref.read(noticeProvider.notifier);
+    final notifier = container.read(noticeProvider.notifier);
     if (ok) {
-      ref.invalidate(playlistsProvider);
-      ref.invalidate(playlistTracksProvider(pl.id));
+      container.invalidate(playlistsProvider);
+      container.invalidate(playlistTracksProvider(pl.id));
       notifier.show('Ajouté à « ${pl.title} »', icon: NoticeIcon.queue);
     } else {
       notifier.show('Ajout impossible');
     }
+  }
+
+  Future<void> _createAndAdd(BuildContext context) async {
+    final container = ProviderScope.containerOf(context, listen: false);
+    Navigator.pop(context);
+    if (!hostContext.mounted) return;
+    final name = await _askPlaylistName(hostContext);
+    if (name == null || name.trim().isEmpty) return;
+    final pl = await PlaylistService.create(name.trim());
+    if (pl == null) {
+      container.read(noticeProvider.notifier).show('Création impossible, réessaie');
+      return;
+    }
+    await _addTo(container, pl);
   }
 
   @override
@@ -491,6 +559,12 @@ class _AddToPlaylistSheet extends ConsumerWidget {
             ),
           ),
           const Divider(height: 1, color: kBorderSoft),
+          _MenuItem(
+            icon: Icons.add,
+            label: 'NOUVELLE PLAYLIST',
+            accent: true,
+            onTap: () => _createAndAdd(context),
+          ),
           async.when(
             loading: () => const Padding(
               padding: EdgeInsets.all(24),
@@ -501,13 +575,7 @@ class _AddToPlaylistSheet extends ConsumerWidget {
               child: Text('Playlists indisponibles.', style: TextStyle(color: kTextSecondary)),
             ),
             data: (playlists) {
-              if (playlists.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Text('Aucune playlist — crée-en une dans la Bibliothèque.',
-                      style: TextStyle(color: kTextSecondary)),
-                );
-              }
+              if (playlists.isEmpty) return const SizedBox.shrink();
               return Flexible(
                 child: ListView.builder(
                   shrinkWrap: true,
@@ -518,7 +586,7 @@ class _AddToPlaylistSheet extends ConsumerWidget {
                     return _MenuItem(
                       icon: Icons.queue_music,
                       label: pl.title.toUpperCase(),
-                      onTap: () => _add(context, ref, pl),
+                      onTap: () => _add(context, pl),
                     );
                   },
                 ),

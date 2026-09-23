@@ -136,7 +136,16 @@ class _TrackListScreenState extends ConsumerState<TrackListScreen> {
           return TrackResultRow(
             track: tracks[i],
             showPublishedAt: widget.showPublishedAt,
-            onTap: () => ref.read(playerProvider.notifier).playTrack(tracks[i], queue: tracks),
+            onTap: () {
+              final paged = ref.read(widget.provider.notifier);
+              ref.read(playerProvider.notifier).playTrack(
+                    tracks[i],
+                    queue: tracks,
+                    fetchMore: paged.fetcher,
+                    pageSize: paged.pageSize,
+                    hasMore: state.hasMore,
+                  );
+            },
             onMenu: () => showTrackActionsSheet(context, ref, tracks[i]),
           );
         },

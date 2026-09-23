@@ -7,11 +7,17 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:smtc_windows/smtc_windows.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:window_manager/window_manager.dart' show windowManager;
 import 'navigation/app_nav.dart';
 import 'navigation/app_nav_impl.dart';
 import 'screens/auth/auth_gate.dart';
 import 'widgets/app_version_gate.dart';
+import 'widgets/share_intent_gate.dart';
 import 'theme/app_theme.dart';
+import 'utils/window_prefs.dart';
+
+final navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +47,16 @@ Future<void> main() async {
     await SMTCWindows.initialize();
   }
 
+  // Plein écran (Windows/macOS/Linux) : restauré tel que laissé la dernière
+  // fois — le réglage se fait ensuite depuis Paramètres du compte.
+  if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+    await windowManager.ensureInitialized();
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(kFullScreenPrefKey) ?? false) {
+      await WindowPrefs.setFullScreen(true);
+    }
+  }
+
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
@@ -59,6 +75,7 @@ class MkzikApp extends StatelessWidget {
     return MaterialApp(
       title: 'Mkzik',
       debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey,
       theme: buildAppTheme(),
       // Desktop : autorise le cliquer-glisser à la souris/trackpad sur les
       // listes (carrousels horizontaux de l'accueil, files…) — le
@@ -71,7 +88,14 @@ class MkzikApp extends StatelessWidget {
           PointerDeviceKind.trackpad,
         },
       ),
-      home: const AppVersionGate(child: AuthGate()),
+      // Réception de partages (TikTok…) : mobile uniquement — Android géré
+      // nativement, iOS nécessite une extension Share ajoutée dans Xcode.
+      home: (Platform.isAndroid || Platform.isIOS)
+          ? ShareIntentGate(
+              navigatorKey: navigatorKey,
+              child: const AppVersionGate(child: AuthGate()),
+            )
+          : const AppVersionGate(child: AuthGate()),
     );
   }
 }
