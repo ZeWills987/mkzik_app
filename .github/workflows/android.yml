@@ -58,7 +58,15 @@ jobs:
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
           if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 --decode > android/app/mkzik-release-v3.keystore
+            # Tolérant au contenu collé depuis Windows (certutil -encode) : on
+            # retire les lignes -----BEGIN/END----- et tout \r, espace ou saut
+            # de ligne avant de décoder, sinon `base64 --decode` échoue avec
+            # "invalid input".
+            printf '%s' "$KEYSTORE_B64" \
+              | sed '/-----/d' \
+              | tr -d ' \r\n\t' \
+              | base64 --decode > android/app/mkzik-release-v3.keystore
+            test -s android/app/mkzik-release-v3.keystore
           fi
 
       - name: Installer Java 17
