@@ -24,7 +24,7 @@ class ArtistService {
       if (symfonyId != null) 'id': '$symfonyId',
     };
     final uri = Uri.parse('${ApiConfig.pythonUrl}artist/tracks').replace(queryParameters: params);
-    final res = await ApiClient.getUri(uri, auth: false, timeout: _timeout);
+    final res = await ApiClient.getUri(uri, auth: true, timeout: _timeout);
     final data = res.orElse(null);
     final list = data is Map ? (data['tracks'] as List? ?? const []) : (data is List ? data : const []);
     final tracks = list.whereType<Map<String, dynamic>>().map((j) {
@@ -107,7 +107,7 @@ class ArtistService {
   /// `GET /artist/{channelId}/preview` — aperçu rapide d'un artiste YTMusic.
   static Future<ArtistPreview?> artistPreview(String channelId) async {
     final uri = Uri.parse('${ApiConfig.pythonUrl}artist/${Uri.encodeComponent(channelId)}/preview');
-    final res = await ApiClient.getUri(uri, auth: false, timeout: _timeout);
+    final res = await ApiClient.getUri(uri, auth: true, timeout: _timeout);
     final data = res.orElse(null);
     return data is Map<String, dynamic> ? ArtistPreview.fromJson(data) : null;
   }

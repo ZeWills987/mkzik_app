@@ -144,6 +144,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _fetchExternalPage(query, 1);
   }
 
+  /// Relance la recherche externe pour la requête courante (bouton « Réessayer »).
+  void _retryExternal() {
+    if (_query.trim().isEmpty) return;
+    _lastExternalRun = '';
+    _runExternal(_query);
+  }
+
   /// Charge la page suivante de résultats externes (déclenché par le scroll).
   void _loadMoreExternal() {
     if (_query.isEmpty || !_showResults) return;
@@ -467,7 +474,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               return const ResultsLoader(label: 'Recherche en cours…');
             }
             if (tracks.isEmpty && isExternal && _externalError != null) {
-              return ExternalErrorView(message: _externalError!);
+              return ExternalErrorView(message: _externalError!, onRetry: _retryExternal);
             }
 
             return _trackList(

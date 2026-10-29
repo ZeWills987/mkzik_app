@@ -209,7 +209,8 @@ class EmptyResults extends StatelessWidget {
 /// Affiche l'erreur de la recherche externe (au lieu d'un vide silencieux).
 class ExternalErrorView extends StatelessWidget {
   final String message;
-  const ExternalErrorView({super.key, required this.message});
+  final VoidCallback? onRetry;
+  const ExternalErrorView({super.key, required this.message, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -227,6 +228,15 @@ class ExternalErrorView extends StatelessWidget {
             Text(message,
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: kTextSecondary, fontSize: 12.5)),
+            if (onRetry != null) ...[
+              const SizedBox(height: 16),
+              TextButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded, color: kAccent, size: 18),
+                label: const Text('Réessayer',
+                    style: TextStyle(color: kAccent, fontSize: 13.5, fontWeight: FontWeight.w700)),
+              ),
+            ],
           ],
         ),
       ),

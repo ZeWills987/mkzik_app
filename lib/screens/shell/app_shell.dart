@@ -8,6 +8,7 @@ import '../../widgets/mini_player.dart';
 import '../../widgets/notice_banner.dart';
 import '../../widgets/tappable.dart';
 import '../../theme/app_theme.dart';
+import '../banger/banger_screen.dart';
 import '../home/home_screen.dart';
 import '../search/search_screen.dart';
 import '../library/library_screen.dart';
@@ -27,12 +28,8 @@ const double _kNavBarContentHeight = 66;
 class AppShell extends ConsumerWidget {
   const AppShell({super.key});
 
-  static const _pages = [
-    HomeScreen(),
-    SearchScreen(),
-    LibraryScreen(),
-    ProfileScreen(),
-  ];
+  /// Position de l'onglet « Banger » dans [_navItems] et dans les pages.
+  static const _bangerIndex = 2;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -46,9 +43,21 @@ class AppShell extends ConsumerWidget {
     // nav bar + mini player au-dessus du clavier). On retire les deux du
     // MediaQuery vu par le contenu, sinon les Scaffold/SafeArea des pages
     // les soustraient une 2e fois → contenu écrasé quand le clavier est ouvert.
+    // Banger a son propre habillage plein écran : pas de mini-player par-dessus
+    // (la lecture reste pilotée par le fil lui-même).
+    final showMini = hasTrack && currentIndex != _bangerIndex;
     final content = MediaQuery(
       data: MediaQuery.of(context).removePadding(removeBottom: true).removeViewInsets(removeBottom: true),
-      child: IndexedStack(index: currentIndex, children: _pages),
+      child: IndexedStack(
+        index: currentIndex,
+        children: [
+          const HomeScreen(),
+          const SearchScreen(),
+          BangerScreen(active: currentIndex == _bangerIndex),
+          const LibraryScreen(),
+          const ProfileScreen(),
+        ],
+      ),
     );
     final bottomSafeArea = MediaQuery.of(context).padding.bottom;
 
@@ -76,7 +85,7 @@ class AppShell extends ConsumerWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const BottomBanners(),
-                            if (hasTrack) const MiniPlayer(),
+                            if (showMini) const MiniPlayer(),
                           ],
                         ),
                       ),
@@ -105,7 +114,7 @@ class AppShell extends ConsumerWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const BottomBanners(),
-                    if (hasTrack) const MiniPlayer(),
+                    if (showMini) const MiniPlayer(),
                   ],
                 ),
               ),
@@ -120,6 +129,10 @@ class AppShell extends ConsumerWidget {
 const _navItems = [
   _NavItem(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Accueil'),
   _NavItem(icon: Icons.search, activeIcon: Icons.search, label: 'Recherche'),
+  _NavItem(
+      icon: Icons.local_fire_department_outlined,
+      activeIcon: Icons.local_fire_department_rounded,
+      label: 'Banger'),
   _NavItem(icon: Icons.music_note_outlined, activeIcon: Icons.music_note, label: 'Librairie'),
   _NavItem(icon: Icons.person_outline, activeIcon: Icons.person, label: 'Profil'),
 ];

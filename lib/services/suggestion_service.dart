@@ -20,7 +20,7 @@ class SuggestionService {
   static Future<List<Track>> youtubePersonal({int limit = 16}) =>
       _list('suggestions/youtube/personal', {'limit': '$limit'}, 'ytm', auth: true);
 
-  /// Feed YTMusic générique — anonyme, aucun JWT.
+  /// Feed YTMusic générique — JWT requis comme toutes les routes Python.
   static Future<List<Track>> youtubeHome({int limit = 16}) =>
       _list('suggestions/youtube/home', {'limit': '$limit'}, 'ytm');
 
@@ -35,9 +35,9 @@ class SuggestionService {
   // ── Related (suggestions par track) ────────────────────────────────────────
 
   /// Titres similaires ("up next") à un titre YouTube.
-  /// Personnalisés si Google lié, anonymes sinon (JWT optionnel côté API).
+  /// Personnalisés si Google lié, anonymes sinon côté contenu (JWT obligatoire côté API).
   static Future<List<Track>> youtubeRelated(String url, {int limit = 25}) =>
-      _list('suggestions/youtube/related', {'url': url, 'limit': '$limit'}, 'ytm', auth: true);
+      _list('suggestions/youtube/related', {'url': url, 'limit': '$limit'}, 'ytm');
 
   /// Titres similaires à un titre SoundCloud. [url] = URL SoundCloud de réf.
   static Future<List<Track>> soundcloudRelated(String url, {int limit = 25}) =>
@@ -49,7 +49,7 @@ class SuggestionService {
     String path,
     Map<String, String> query,
     String source, {
-    bool auth = false,
+    bool auth = true,
   }) async {
     final uri = Uri.parse('${ApiConfig.pythonUrl}$path').replace(queryParameters: query);
     final res = await ApiClient.getUri(uri, auth: auth, timeout: _timeout);

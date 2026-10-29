@@ -103,7 +103,8 @@ class PlayerState {
 
 class PlayerNotifier extends StateNotifier<PlayerState> {
   final Ref _ref;
-  final AudioPlayer _audio = AudioPlayer();
+
+  late final AudioPlayer _audio = AudioPlayer();
   // Jeton anti-concurrence : invalide les chargements obsolètes (taps rapides)
   int _playToken = 0;
 
@@ -531,10 +532,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   /// Flux Python pas encore prêt : on enchaîne tout de suite et on surveille sa
   /// résolution en arrière-plan pour le réinsérer juste après le titre en cours.
-  void _deferUnresolved(Track track, List<Track> q, int idx) {
+  void _deferUnresolved(Track track, List<Track> q, int idx, {int? status}) {
     final alone = _source.length < 2;
     if (_pendingStreams.add(track.id)) {
-      unawaited(_waitForStream(track, _queueEpoch));
+      unawaited(_waitForStream(track, _queueEpoch, firstDelay: _firstProbeDelay(status)));
     }
     if (alone) {
       state = state.copyWith(isPlaying: false);
@@ -544,15 +545,26 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _skipFailed(q, idx);
   }
 
-  Future<void> _waitForStream(Track track, int epoch) async {
-    final deadline = DateTime.now().add(const Duration(minutes: 2));
-    var delay = const Duration(seconds: 3);
+  /// Chaque sonde consomme une IP de sortie côté Python (pool limité) : on ne
+  /// sonde JAMAIS pendant que le pool est encore bloqué. Le serveur est seul à
+  /// connaître l'état du pool → l'intervalle vient exclusivement de son
+  /// `Retry-After` ; à défaut (notamment après l'échec de lecture initial, dont
+  /// just_audio n'expose pas les en-têtes) : 30 s, ou 10 s après un 429.
+  static const _defaultProbeWait = Duration(seconds: 30);
+  static const _maxProbes = 4;
+
+  static Duration _firstProbeDelay(int? status) =>
+      status == 429 ? const Duration(seconds: 10) : _defaultProbeWait;
+
+  Future<void> _waitForStream(Track track, int epoch, {required Duration firstDelay}) async {
     var gaveUpUnavailable = false;
     try {
-      while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(firstDelay);
+      for (var probes = 0; probes < _maxProbes; probes++) {
         if (epoch != _queueEpoch) return;
-        final status = await _probeStream(track);
+        final probe = await _probeStream(track);
         if (epoch != _queueEpoch) return;
+        final status = probe.status;
         if (status == 200 || status == 206) {
           await _insertAsNext(track);
           return;
@@ -561,8 +573,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           gaveUpUnavailable = true;
           break;
         }
-        await Future.delayed(delay);
-        delay = Duration(seconds: (delay.inSeconds * 2).clamp(3, 30));
+        // 409 (requête annulée) : on n'insiste pas. 401 : jeton absent ou
+        // expiré, inutile de re-solliciter le serveur.
+        if (status == 409) return;
+        if (status == 401) break;
+        if (probes == _maxProbes - 1) break;
+        await Future<void>.delayed(probe.retryAfter ?? _defaultProbeWait);
       }
       if (epoch == _queueEpoch) {
         _ref.read(noticeProvider.notifier).show(gaveUpUnavailable
@@ -576,8 +592,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   /// Sonde le proxy /stream (1er octet). Python partage la résolution en cours
   /// et met le résultat en cache → un 206 signifie que le titre est prêt.
-  Future<int?> _probeStream(Track track) async {
-    if (track.pageUrl.isEmpty) return 404;
+  Future<({int? status, Duration? retryAfter})> _probeStream(Track track) async {
+    if (track.pageUrl.isEmpty) return (status: 404, retryAfter: null);
     final client = http.Client();
     try {
       final req = http.Request('GET', Uri.parse(ApiConfig.streamUrl(track.pageUrl)))
@@ -585,9 +601,13 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       final jwt = ApiConfig.token;
       if (jwt != null && jwt.isNotEmpty) req.headers['Authorization'] = 'Bearer $jwt';
       final res = await client.send(req).timeout(const Duration(seconds: 60));
-      return res.statusCode;
+      // Retry-After en secondes, borné : on ignore une valeur absurde plutôt
+      // que de suspendre la surveillance ou de re-solliciter trop vite.
+      final seconds = int.tryParse(res.headers['retry-after'] ?? '');
+      final retryAfter = (seconds != null && seconds >= 1 && seconds <= 120) ? Duration(seconds: seconds) : null;
+      return (status: res.statusCode, retryAfter: retryAfter);
     } catch (_) {
-      return null;
+      return (status: null, retryAfter: null);
     } finally {
       client.close();
     }
@@ -820,7 +840,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         final transient = timedOut || const {429, 502, 503, 504}.contains(status);
         if (track.needsStream && transient && !unavailable) {
           closeStreamJob();
-          _deferUnresolved(track, q, selIdx);
+          _deferUnresolved(track, q, selIdx, status: status);
           return;
         }
         if (unavailable && q.length > 1) {

@@ -30,7 +30,7 @@ class LyricsService {
       if (artist != null && artist.isNotEmpty) 'artist': artist,
       if (title != null && title.isNotEmpty) 'title': title,
     });
-    final res = await ApiClient.getUri(uri, auth: false);
+    final res = await ApiClient.getUri(uri, auth: true);
     final data = res.orElse(null);
     return data is Map<String, dynamic> ? Lyrics.fromJson(data) : null;
   }

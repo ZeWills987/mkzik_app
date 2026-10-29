@@ -32,7 +32,7 @@ class TrackResolveService {
   static Future<ResolveResult> resolve(String sharedUrl) async {
     final uri = Uri.parse('${ApiConfig.pythonUrl}track/resolve')
         .replace(queryParameters: {'url': sharedUrl});
-    final res = await ApiClient.getUri(uri, auth: false, timeout: const Duration(seconds: 25));
+    final res = await ApiClient.getUri(uri, auth: true, timeout: const Duration(seconds: 25));
     switch (res) {
       case Ok(:final data):
         if (data is! Map) return ResolveNotFound();
