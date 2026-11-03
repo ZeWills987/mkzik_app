@@ -56,10 +56,12 @@ class _BangerScreenState extends ConsumerState<BangerScreen> {
   }
 
   void _onActivated() {
-    ref.read(bangerProvider.notifier).ensureLoaded();
-    // Après le build : le PageView doit exister avant de démarrer la lecture.
+    // Après le build : modifier un provider pendant la construction de l'arbre
+    // est interdit, et le PageView doit exister avant de démarrer la lecture.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.active) _playIndex(_index, resume: true);
+      if (!mounted || !widget.active) return;
+      ref.read(bangerProvider.notifier).ensureLoaded();
+      _playIndex(_index, resume: true);
     });
   }
 
