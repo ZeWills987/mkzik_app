@@ -177,5 +177,6 @@ jobs:
           git add altstore-source.json
           git commit -m "chore: maj source AltStore (build ${{ github.run_number }}) [skip ci]" || exit 0
           # Un push concurrent sur main ne doit pas faire échouer la mise à jour.
-          git pull --rebase origin main
+          # --autostash : le build laisse des fichiers suivis modifiés (ex. Podfile.lock supprimé).
+          git pull --rebase --autostash origin main
           git push
