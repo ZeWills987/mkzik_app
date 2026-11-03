@@ -134,3 +134,18 @@ jobs:
           name: "Mkzik iOS (dernier build)"
           body_path: release_notes.md
           files: mkzik.ipa
+      - name: Mettre à jour la source AltStore
+        run: |
+          SIZE=$(stat -f%z mkzik.ipa)
+          jq --arg b "${{ github.run_number }}" \
+             --argjson s "$SIZE" \
+             --arg d "$(date -u +%Y-%m-%d)" \
+             '.apps[0].versions[0].buildVersion = $b
+              | .apps[0].versions[0].size = $s
+              | .apps[0].versions[0].date = $d' \
+             altstore-source.json > tmp.json && mv tmp.json altstore-source.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add altstore-source.json
+          git commit -m "chore: maj source AltStore (build ${{ github.run_number }}) [skip ci]" || exit 0
+          git push
