@@ -114,6 +114,12 @@ jobs:
           mkdir -p Payload
           cp -R Runner.app Payload/
           zip -qq -r "$GITHUB_WORKSPACE/mkzik.ipa" Payload
+          # Copie à nom UNIQUE par build : c'est elle que pointe la source AltStore.
+          # SideStore refuse l'install si le CFBundleVersion de l'IPA diffère du
+          # buildVersion de la source. Avec une URL qui change à chaque build, une
+          # source en cache (ou pas encore redéployée sur Pages) pointe toujours
+          # vers un IPA cohérent avec elle, quel que soit l'appareil.
+          cp "$GITHUB_WORKSPACE/mkzik.ipa" "$GITHUB_WORKSPACE/mkzik-${{ github.run_number }}.ipa"
 
       # Notes de version = commits feat/fix/style/refactor depuis le tag précédent.
       - name: Générer les notes de version
@@ -133,14 +139,36 @@ jobs:
           tag_name: ios-latest
           name: "Mkzik iOS (dernier build)"
           body_path: release_notes.md
-          files: mkzik.ipa
+          files: |
+            mkzik.ipa
+            mkzik-${{ github.run_number }}.ipa
+      # Garde les 5 derniers IPA versionnés (mkzik-<n>.ipa) pour limiter le poids
+      # de la Release ; mkzik.ipa (URL stable) n'est jamais supprimé.
+      - name: Nettoyer les anciens IPA versionnés
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ios-latest --json assets -q '.assets[].name' \
+            | grep -E '^mkzik-[0-9]+\.ipa$' \
+            | sort -t- -k2 -n -r \
+            | tail -n +6 \
+            | while read -r name; do gh release delete-asset ios-latest "$name" -y; done || true
+
+      # La source n'est modifiée qu'APRÈS la publication de l'IPA : buildVersion,
+      # version et downloadURL pointent toujours vers un IPA qui existe.
       - name: Mettre à jour la source AltStore
         run: |
           SIZE=$(stat -f%z mkzik.ipa)
+          VERSION=$(grep '^version:' pubspec.yaml | head -1 | sed -E 's/version: *([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          URL="https://github.com/${{ github.repository }}/releases/download/ios-latest/mkzik-${{ github.run_number }}.ipa"
           jq --arg b "${{ github.run_number }}" \
+             --arg v "$VERSION" \
+             --arg u "$URL" \
              --argjson s "$SIZE" \
              --arg d "$(date -u +%Y-%m-%d)" \
              '.apps[0].versions[0].buildVersion = $b
+              | .apps[0].versions[0].version = $v
+              | .apps[0].versions[0].downloadURL = $u
               | .apps[0].versions[0].size = $s
               | .apps[0].versions[0].date = $d' \
              altstore-source.json > tmp.json && mv tmp.json altstore-source.json
@@ -148,4 +176,6 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add altstore-source.json
           git commit -m "chore: maj source AltStore (build ${{ github.run_number }}) [skip ci]" || exit 0
+          # Un push concurrent sur main ne doit pas faire échouer la mise à jour.
+          git pull --rebase origin main
           git push
