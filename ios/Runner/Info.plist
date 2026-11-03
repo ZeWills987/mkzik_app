@@ -65,6 +65,11 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Identifiant client iOS Google Sign-In. Indispensable : GoogleService-Info.plist
+	     n'est pas embarqué dans l'app (absent du projet Xcode), sans cette clé la
+	     connexion Google échoue avec « No active configuration ». Pas un secret. -->
+	<key>GIDClientID</key>
+	<string>1035803571261-1o0ua2k3un4igverq0278ghhkbafrgmb.apps.googleusercontent.com</string>
 	<!-- URL scheme pour le callback OAuth Google Sign-In (REVERSED_CLIENT_ID) -->
 	<key>CFBundleURLTypes</key>
 	<array>
