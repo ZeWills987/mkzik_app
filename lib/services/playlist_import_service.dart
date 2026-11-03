@@ -71,6 +71,8 @@ class PlaylistImportService {
         return PlaylistImportDone(_summary(data, fallbackTotal: urls.length));
       case Err(:final statusCode, :final message):
         return PlaylistImportFailed(switch (statusCode) {
+          // Lien déjà lié à une autre playlist, ou même lien déjà en cours d'import.
+          409 => message.isNotEmpty ? message : 'Cette playlist est déjà importée ou en cours d\'import.',
           413 => 'Playlist trop longue (500 titres maximum).',
           429 => 'Limite atteinte : 5 imports par heure. Réessaie plus tard.',
           _ => message,
