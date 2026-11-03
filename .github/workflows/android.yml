@@ -88,6 +88,11 @@ jobs:
       # --build-number = numéro de run CI → versionCode qui monte à chaque build
       # (le compteur local de version.properties ne persiste pas sur le runner).
       - name: Build APK (release)
+        # Lus par build.gradle.kts pour signer (jamais passés au step de restauration seul).
+        env:
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: flutter build apk --release --build-number=${{ github.run_number }}
 
       # Notes de version = commits feat/fix/style/refactor depuis le tag précédent.
