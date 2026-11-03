@@ -12,6 +12,34 @@ class ResolveFound extends ResolveResult {
   ResolveFound(this.tracks, {this.metaTitle, this.metaArtist});
 }
 
+/// Le lien pointe vers une playlist (`kind: "playlist"`), pas vers un titre.
+class ResolvePlaylist extends ResolveResult {
+  final String platform; // 'soundcloud' | 'youtube'
+  final String title;
+  final String artist;
+  final String thumbnail;
+  final String sourceUrl; // forme unique du lien = identifiant fiable de l'import
+  final String playlistId;
+  final int trackCount;
+  final bool truncated; // SoundCloud : plus de 500 titres, la liste est coupée
+  /// SoundCloud uniquement (YouTube : vide, Symfony lit la playlist via le compte Google).
+  /// Seule l'url de chaque titre est fiable : titre/artiste/cover sont vides.
+  final List<Track> tracks;
+  ResolvePlaylist({
+    required this.platform,
+    required this.title,
+    required this.artist,
+    required this.thumbnail,
+    required this.sourceUrl,
+    required this.playlistId,
+    required this.trackCount,
+    required this.truncated,
+    required this.tracks,
+  });
+
+  bool get isSoundcloud => platform == 'soundcloud';
+}
+
 /// Aucune musique identifiable dans la vidéo (son original, métadonnées absentes).
 class ResolveNotFound extends ResolveResult {}
 
@@ -43,6 +71,24 @@ class TrackResolveService {
           if (m['source'] == 'mkzik') m['source'] = '';
           return Track.fromJson(m);
         }).toList();
+        // Ancienne API : pas de `kind` → traité comme un titre.
+        if (data['kind'] == 'playlist') {
+          final url = (meta['source_url'] ?? meta['url'] ?? '').toString();
+          final platform = data['platform']?.toString() ?? '';
+          if (url.isNotEmpty && (platform == 'youtube' || tracks.isNotEmpty)) {
+            return ResolvePlaylist(
+              platform: platform,
+              title: (meta['title'] ?? '').toString(),
+              artist: (meta['artist'] ?? '').toString(),
+              thumbnail: (meta['thumbnail'] ?? '').toString(),
+              sourceUrl: url,
+              playlistId: (meta['playlist_id'] ?? '').toString(),
+              trackCount: (meta['track_count'] as num?)?.toInt() ?? tracks.length,
+              truncated: meta['truncated'] == true,
+              tracks: tracks,
+            );
+          }
+        }
         if (tracks.isEmpty) return ResolveNotFound();
         return ResolveFound(
           tracks,

@@ -5,6 +5,7 @@ import '../../providers/player_provider.dart';
 import '../../services/track_resolve_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/track_actions.dart';
+import 'playlist_import_view.dart';
 
 /// Écran ouvert quand l'utilisateur partage un lien (TikTok…) vers Mkzik —
 /// Python tente d'identifier le titre utilisé dans la vidéo.
@@ -53,6 +54,7 @@ class _ResolveTrackScreenState extends ConsumerState<ResolveTrackScreen> {
             );
           }
           final result = snap.data;
+          if (result is ResolvePlaylist) return PlaylistImportView(playlist: result);
           if (result is ResolveFound) {
             final hasMeta = result.metaTitle?.isNotEmpty == true;
             return ListView.builder(
