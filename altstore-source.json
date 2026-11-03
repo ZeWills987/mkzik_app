@@ -18,11 +18,11 @@
       "versions": [
         {
           "version": "2.3.3",
-          "buildVersion": "64",
+          "buildVersion": "65",
           "date": "2026-11-03",
           "localizedDescription": "Première version de test pour les amis.",
-          "downloadURL": "https://github.com/ZeWills987/mkzik_app/releases/download/ios-latest/mkzik-64.ipa",
-          "size": 9276774
+          "downloadURL": "https://github.com/ZeWills987/mkzik_app/releases/download/ios-latest/mkzik-65.ipa",
+          "size": 9276803
         }
       ],
       "appPermissions": {
