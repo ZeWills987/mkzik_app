@@ -1,71 +1,11 @@
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mkzik_app/models/track.dart';
-import 'package:mkzik_app/player/core/audio_engine.dart';
 import 'package:mkzik_app/player/core/player_core.dart';
 import 'package:mkzik_app/player/core/track_resolver.dart';
 import 'package:mkzik_app/services/track_service.dart';
 
-/// Faux moteur : enregistre les appels, et échoue sur commande.
-class FakeEngine implements AudioEngine {
-  final List<Track> loaded = [];
-  int playCalls = 0;
-  int pauseCalls = 0;
-  final List<Duration> seeks = [];
-  bool repeatOne = false;
-  bool _playing = false;
-  bool ready = true;
-
-  /// Une entrée par appel à `load` : si non null, c'est l'erreur à lever.
-  final List<Object?> loadOutcomes = [];
-
-  @override
-  Future<void> load(Track track) async {
-    loaded.add(track);
-    final i = loaded.length - 1;
-    final outcome = i < loadOutcomes.length ? loadOutcomes[i] : null;
-    if (outcome != null) throw outcome;
-  }
-
-  @override
-  void play() {
-    playCalls++;
-    _playing = true;
-  }
-
-  @override
-  Future<void> pause() async {
-    pauseCalls++;
-    _playing = false;
-  }
-
-  @override
-  Future<void> seek(Duration position) async => seeks.add(position);
-
-  @override
-  Future<void> setRepeatOne(bool value) async => repeatOne = value;
-
-  @override
-  bool get playing => _playing;
-
-  @override
-  bool get canSeek => ready;
-
-  @override
-  Stream<Duration> get positionStream => const Stream.empty();
-  @override
-  Stream<Duration?> get durationStream => const Stream.empty();
-  @override
-  Stream<Duration>? get bufferedStream => null;
-  @override
-  Stream<bool> get playingStream => const Stream.empty();
-  @override
-  Stream<void> get completedStream => const Stream.empty();
-  @override
-  Stream<Object> get errorStream => const Stream.empty();
-  @override
-  Future<void> dispose() async {}
-}
+import 'support/fake_audio_engine.dart';
 
 Track _track({
   String id = 't1',
@@ -87,7 +27,7 @@ Track _track({
     );
 
 void main() {
-  late FakeEngine engine;
+  late FakeAudioEngine engine;
   late PlayerCore core;
 
   // Titre externe (flux Python) et titre interne (URL signée).
@@ -95,7 +35,7 @@ void main() {
   final internal = _track(id: 'in', apiId: 5);
 
   setUp(() {
-    engine = FakeEngine();
+    engine = FakeAudioEngine();
     core = PlayerCore(
       engine: engine,
       resolver: TrackResolver(
