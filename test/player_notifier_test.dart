@@ -33,6 +33,7 @@ void main() {
   late PlayerNotifier player;
   late List<int> started; // apiId des écoutes démarrées
   late List<_Closed> closed; // écoutes clôturées
+  late List<Track> suggestions; // renvoyées par la radio
 
   final a = _t('a', apiId: 1);
   final b = _t('b', apiId: 2);
@@ -46,6 +47,7 @@ void main() {
     engine = FakeAudioEngine();
     started = [];
     closed = [];
+    suggestions = [];
     final provider = StateNotifierProvider<PlayerNotifier, PlayerState>(
       (ref) => PlayerNotifier(
         ref,
@@ -61,6 +63,7 @@ void main() {
           },
         ),
         mediaControls: NoopMediaControls(),
+        radioSuggestions: (_) async => suggestions,
       ),
     );
     container = ProviderContainer();
@@ -332,6 +335,36 @@ void main() {
       expect(ids(st().queue), ['c', 'a', 'b']);
       expect(st().currentIndex, 1);
       expect(st().currentTrack?.id, 'a');
+    });
+  });
+
+  group('mode radio', () {
+    // Suggestion Python : titre externe sans URL, à lire via /stream.
+    Track ext(String id) => Track(
+          id: id,
+          title: 'Ext $id',
+          artist: 'A',
+          coverUrl: '',
+          duration: const Duration(minutes: 3),
+          audioUrl: '',
+          source: 'ytm',
+          pageUrl: 'https://music.youtube.com/watch?v=$id',
+        );
+
+    test('les suggestions externes sans URL restent dans la file', () async {
+      suggestions = [ext('x1'), ext('x2')];
+      await player.playTrack(a, queue: [a, b]);
+      await settle();
+      expect(await player.startRadio(), isTrue);
+      expect(ids(st().queue), ['a', 'x1', 'x2']);
+      expect(st().currentTrack?.id, 'a');
+    });
+
+    test('sans suggestion : la radio ne démarre pas', () async {
+      await player.playTrack(a, queue: [a, b]);
+      await settle();
+      expect(await player.startRadio(), isFalse);
+      expect(ids(st().queue), ['a', 'b']);
     });
   });
 }

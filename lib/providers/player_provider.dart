@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/track.dart';
 import '../player/core/audio_engine.dart';
@@ -12,7 +10,9 @@ import '../player/core/playback_error.dart';
 import '../player/core/player_core.dart';
 import '../player/core/system_media_controls.dart';
 import '../player/core/track_resolver.dart';
-import '../player/queue_navigation.dart';
+import '../player/play_queue.dart';
+import '../player/radio_picker.dart';
+import '../player/stream_readiness.dart';
 import '../services/external_track_service.dart';
 import '../services/track_service.dart';
 import '../services/radio_service.dart';
@@ -111,12 +111,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     TrackResolver? resolver,
     PlayTracker? tracker,
     SystemMediaControls? mediaControls,
+    Future<List<Track>> Function(Track seed)? radioSuggestions,
   })  : _resolver = resolver ?? TrackResolver(),
         _tracker = tracker ?? PlayTracker(),
         _media = mediaControls ?? createSystemMediaControls(),
         super(const PlayerState()) {
     _engine = engine ?? JustAudioEngine();
     _core = PlayerCore(engine: _engine, resolver: _resolver);
+    _radio = RadioPicker(suggestions: radioSuggestions ?? RadioService.suggestionsFor, resolver: _resolver);
     _listenToEngine();
   }
 
@@ -132,21 +134,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   // Jeton anti-concurrence : invalide les chargements obsolètes (taps rapides)
   int _playToken = 0;
 
-  // Liste d'origine de la lecture (tout ce qui est connu : pages déjà chargées).
-  // La file affichée (state.queue) n'en est qu'une fenêtre autour du titre courant.
-  List<Track> _source = [];
-  TrackPageFetcher? _sourceFetch; // page suivante de la liste (API), null si liste fixe
-  int _sourcePageSize = 20;
-  int _sourceFetchedCount = 0; // offset API = titres déjà reçus de la source
-  bool _sourceHasMore = false;
+  // La liste lue (tout ce qui est connu) ; state.queue n'en est qu'une fenêtre.
+  final PlayQueue _queue = PlayQueue();
   bool _extendingForward = false;
   bool _extendingBackward = false;
-  static const _kWindow = 10; // titres chargés avant / après le titre courant
 
-  // Flux Python en cours de résolution en arrière-plan (ids de track).
-  final Set<String> _pendingStreams = {};
-  // Change quand l'utilisateur lance une autre liste → annule les réinsertions.
-  int _queueEpoch = 0;
+  // Flux Python pas encore prêts, surveillés en arrière-plan.
+  final StreamReadinessWatcher _streams = StreamReadinessWatcher();
+  late final RadioPicker _radio;
 
   // Autoplay radio : extension de la file par suggestions en fin de liste.
   bool _radioBusy = false; // une extension est déjà en cours
@@ -215,7 +210,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final t = state.currentTrack;
     final unavailable = isTrackUnavailable(e);
     final notices = _ref.read(noticeProvider.notifier);
-    if (t != null && _source.length > 1) {
+    if (t != null && _queue.length > 1) {
       notices.show(unavailable
           ? '« ${t.title} » indisponible — titre suivant'
           : 'Erreur réseau sur « ${t.title} » — titre suivant');
@@ -248,14 +243,13 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// Retire le titre en échec de la file et enchaîne sur le suivant.
   void _skipFailed(List<Track> q, int idx) {
     final failedId = q[idx].id;
-    final srcIdx = _source.indexWhere((t) => t.id == failedId);
-    if (srcIdx >= 0) _source.removeAt(srcIdx);
+    final srcIdx = _queue.removeById(failedId);
     final rest = [...q]..removeAt(idx);
-    if (rest.isEmpty || _source.isEmpty) {
+    if (rest.isEmpty || _queue.isEmpty) {
       state = state.copyWith(isPlaying: false);
       return;
     }
-    final next = idx < rest.length ? rest[idx] : _source[(srcIdx < 0 ? 0 : srcIdx) % _source.length];
+    final next = idx < rest.length ? rest[idx] : _queue.wrapAt(srcIdx < 0 ? 0 : srcIdx)!;
     state = state.copyWith(queue: rest, currentIndex: rest.indexWhere((t) => t.id == next.id));
     unawaited(Future.microtask(() => _playFromSource(next)));
   }
@@ -263,84 +257,22 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// Flux Python pas encore prêt : on enchaîne tout de suite et on surveille sa
   /// résolution en arrière-plan pour le réinsérer juste après le titre en cours.
   void _deferUnresolved(Track track, List<Track> q, int idx, {int? status}) {
-    final alone = _source.length < 2;
-    if (_pendingStreams.add(track.id)) {
-      unawaited(_waitForStream(track, _queueEpoch, firstDelay: _firstProbeDelay(status)));
-    }
+    final alone = _queue.length < 2;
+    final epoch = _queue.epoch;
+    unawaited(_streams.watch(
+      track,
+      firstDelay: _streams.firstDelay(status),
+      isCurrent: () => epoch == _queue.epoch,
+      onReady: _insertAsNext,
+      onGiveUp: (unavailable) => _ref.read(noticeProvider.notifier).show(
+          unavailable ? '« ${track.title} » indisponible' : '« ${track.title} » indisponible pour le moment'),
+    ));
     if (alone) {
       state = state.copyWith(isPlaying: false);
       _ref.read(noticeProvider.notifier).show('« ${track.title} » se lancera dès qu\'il est prêt');
       return;
     }
     _skipFailed(q, idx);
-  }
-
-  /// Chaque sonde consomme une IP de sortie côté Python (pool limité) : on ne
-  /// sonde JAMAIS pendant que le pool est encore bloqué. Le serveur est seul à
-  /// connaître l'état du pool → l'intervalle vient exclusivement de son
-  /// `Retry-After` ; à défaut (notamment après l'échec de lecture initial, dont
-  /// just_audio n'expose pas les en-têtes) : 30 s, ou 10 s après un 429.
-  static const _defaultProbeWait = Duration(seconds: 30);
-  static const _maxProbes = 4;
-
-  static Duration _firstProbeDelay(int? status) =>
-      status == 429 ? const Duration(seconds: 10) : _defaultProbeWait;
-
-  Future<void> _waitForStream(Track track, int epoch, {required Duration firstDelay}) async {
-    var gaveUpUnavailable = false;
-    try {
-      await Future<void>.delayed(firstDelay);
-      for (var probes = 0; probes < _maxProbes; probes++) {
-        if (epoch != _queueEpoch) return;
-        final probe = await _probeStream(track);
-        if (epoch != _queueEpoch) return;
-        final status = probe.status;
-        if (status == 200 || status == 206) {
-          await _insertAsNext(track);
-          return;
-        }
-        if (status == 404) {
-          gaveUpUnavailable = true;
-          break;
-        }
-        // 409 (requête annulée) : on n'insiste pas. 401 : jeton absent ou
-        // expiré, inutile de re-solliciter le serveur.
-        if (status == 409) return;
-        if (status == 401) break;
-        if (probes == _maxProbes - 1) break;
-        await Future<void>.delayed(probe.retryAfter ?? _defaultProbeWait);
-      }
-      if (epoch == _queueEpoch) {
-        _ref.read(noticeProvider.notifier).show(gaveUpUnavailable
-            ? '« ${track.title} » indisponible'
-            : '« ${track.title} » indisponible pour le moment');
-      }
-    } finally {
-      _pendingStreams.remove(track.id);
-    }
-  }
-
-  /// Sonde le proxy /stream (1er octet). Python partage la résolution en cours
-  /// et met le résultat en cache → un 206 signifie que le titre est prêt.
-  Future<({int? status, Duration? retryAfter})> _probeStream(Track track) async {
-    if (track.pageUrl.isEmpty) return (status: 404, retryAfter: null);
-    final client = http.Client();
-    try {
-      final req = http.Request('GET', Uri.parse(ApiConfig.streamUrl(track.pageUrl)))
-        ..headers['Range'] = 'bytes=0-1';
-      final jwt = ApiConfig.token;
-      if (jwt != null && jwt.isNotEmpty) req.headers['Authorization'] = 'Bearer $jwt';
-      final res = await client.send(req).timeout(const Duration(seconds: 60));
-      // Retry-After en secondes, borné : on ignore une valeur absurde plutôt
-      // que de suspendre la surveillance ou de re-solliciter trop vite.
-      final seconds = int.tryParse(res.headers['retry-after'] ?? '');
-      final retryAfter = (seconds != null && seconds >= 1 && seconds <= 120) ? Duration(seconds: seconds) : null;
-      return (status: res.statusCode, retryAfter: retryAfter);
-    } catch (_) {
-      return (status: null, retryAfter: null);
-    } finally {
-      client.close();
-    }
   }
 
   /// Insère un flux désormais résolu juste après le titre en cours, sans
@@ -360,8 +292,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final q = [...state.queue];
     if (q.any((x) => x.id == t.id)) return;
     q.insert((state.currentIndex + 1).clamp(0, q.length), t);
-    final curSrc = _source.indexWhere((x) => x.id == cur.id);
-    _source.insert(curSrc < 0 ? _source.length : curSrc + 1, t);
+    _queue.insertAfter(cur, t);
     state = state.copyWith(queue: q);
     notices.show('« ${t.title} » sera joué ensuite', icon: NoticeIcon.playNext);
   }
@@ -369,7 +300,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// Lance [track] dans la liste [queue].
   ///
   /// La file du player ne contient qu'une **fenêtre** de la liste : jusqu'à
-  /// [_kWindow] titres avant et après le titre courant. Elle s'étend au fil de
+  /// [PlayQueue.window] titres avant et après le titre courant. Elle s'étend au fil de
   /// l'écoute (ou du scroll de la file d'attente) depuis [queue], puis via
   /// [fetchMore] (page suivante de l'API) quand la liste chargée est épuisée.
   Future<void> playTrack(
@@ -384,39 +315,15 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final list = [...(queue ?? [track])];
     if (!list.any((t) => t.id == track.id)) list.insert(0, track);
 
-    final sameList = listEquals(
-      list.map((t) => t.id).toList(),
-      _source.take(list.length).map((t) => t.id).toList(),
-    );
-    if (!sameList) {
-      // Nouvelle liste → les réinsertions en attente sont abandonnées.
-      _queueEpoch++;
-      _source = list;
-      _sourceFetch = fetchMore;
-      _sourcePageSize = pageSize;
-      _sourceFetchedCount = list.length;
-      _sourceHasMore = fetchMore != null && hasMore;
-    } else if (fetchMore != null && _sourceFetch == null) {
-      _sourceFetch = fetchMore;
-      _sourcePageSize = pageSize;
-      _sourceHasMore = hasMore;
-    }
+    _queue.load(list, fetchMore: fetchMore, pageSize: pageSize, hasMore: hasMore);
     if (await _restartCurrent(track)) return;
     await _playFromSource(track);
   }
 
-  /// Lance [track] (présent dans [_source]) avec une file fenêtrée autour de lui.
+  /// Lance [track] (présent dans la liste [_queue]) avec une file fenêtrée autour de lui.
   Future<void> _playFromSource(Track track) async {
     if (state.isLoading && state.currentTrack?.id == track.id) return;
-    var srcIdx = _source.indexWhere((t) => t.id == track.id);
-    if (srcIdx < 0) {
-      _source.insert(0, track);
-      srcIdx = 0;
-    }
-    final window = _source.sublist(
-      (srcIdx - _kWindow).clamp(0, _source.length),
-      (srcIdx + _kWindow + 1).clamp(0, _source.length),
-    );
+    final window = _queue.windowAround(track);
     final token = ++_playToken;
     state = state.copyWith(isLoading: true);
     try {
@@ -557,26 +464,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _radioFromId = seed.id;
     final token = _playToken;
     try {
-      final suggestions = await RadioService.suggestionsFor(seed);
-      if (token != _playToken) return;
-
-      // Dédup contre ce qui est déjà dans la liste.
-      final seen = {for (final t in _source) RadioService.dedupKey(t)};
-      final fresh = <Track>[];
-      for (final t in suggestions) {
-        if (seen.add(RadioService.dedupKey(t))) fresh.add(t);
-      }
-      if (fresh.isEmpty) return; // → la liste reboucle
-
-      // Résout (URLs de stream) puis ajoute à la suite, sans couper la lecture.
-      final resolved = <Track>[];
-      for (final t in fresh.take(10)) {
-        final r = await _resolver.resolveForQueue(t);
-        if (r == null || r.audioUrl.isEmpty) continue;
-        resolved.add(r);
-      }
+      final resolved = await _radio.toAppend(seed, existing: _queue.tracks, isStale: () => token != _playToken);
       if (token != _playToken || resolved.isEmpty) return;
-      _source.addAll(resolved);
+      _queue.addAll(resolved);
       state = state.copyWith(queue: [...state.queue, ...resolved]);
       mkLog('Mkzik 📻 radio +${resolved.length} titres (seed "${seed.title}")');
     } catch (e) {
@@ -596,19 +486,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // titre pendant ce temps (_playToken changé), on abandonne.
     final token = _playToken;
     try {
-      final suggestions = await RadioService.suggestionsFor(seed);
-      if (token != _playToken) return false;
-      final seen = {RadioService.dedupKey(seed)};
-      final fresh = <Track>[for (final t in suggestions) if (seen.add(RadioService.dedupKey(t))) t];
-      if (fresh.isEmpty) return false;
-
-      final resolved = <Track>[];
-      for (final t in fresh.take(20)) {
-        final r = await _resolver.resolveForQueue(t);
-        if (token != _playToken) return false;
-        if (r == null || r.audioUrl.isEmpty) continue;
-        resolved.add(r);
-      }
+      final resolved = await _radio.toReplaceUpcoming(seed, isStale: () => token != _playToken);
       if (resolved.isEmpty || token != _playToken) return false;
 
       // La file Dart garde les titres déjà écoutés (affichés dans la file
@@ -617,11 +495,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       final newQueue = [...history, seed, ...resolved];
       // La radio remplace tout ce qui suit le titre courant, y compris la suite
       // de la liste d'origine non encore chargée.
-      final seedSrc = _source.indexWhere((t) => t.id == seed.id);
-      final firstSrc = history.isEmpty ? seedSrc : _source.indexWhere((t) => t.id == history.first.id);
-      _source = [if (firstSrc > 0) ..._source.sublist(0, firstSrc), ...newQueue];
-      _sourceFetch = null;
-      _sourceHasMore = false;
+      _queue.replaceFrom(history.isEmpty ? seed : history.first, newQueue);
       state = state.copyWith(
         queue: newQueue,
         currentIndex: history.length,
@@ -645,9 +519,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   Future<void> previous() async {
     final cur = state.currentTrack;
-    if (cur == null || _source.length < 2) return;
-    final srcIdx = _source.indexWhere((t) => t.id == cur.id);
-    await _playFromSource(_source[previousSourceIndex(length: _source.length, current: srcIdx)]);
+    if (cur == null || _queue.length < 2) return;
+    await _playFromSource(_queue.previousOf(cur));
   }
 
   // ── File fenêtrée : extension progressive ───────────────────────────────────
@@ -660,26 +533,13 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (state.currentIndex < 3) await loadMorePrevious();
   }
 
-  /// Ajoute jusqu'à [_kWindow] titres suivants à la file : depuis la liste déjà
-  /// connue, sinon via la page suivante de l'API.
+  /// Ajoute jusqu'à [PlayQueue.window] titres suivants à la file : depuis la
+  /// liste déjà connue, sinon via la page suivante de l'API.
   Future<void> loadMoreUpcoming() async {
     if (_extendingForward || state.queue.isEmpty) return;
     _extendingForward = true;
-    final epoch = _queueEpoch;
     try {
-      var lastSrc = _source.indexWhere((t) => t.id == state.queue.last.id);
-      if (lastSrc < 0) return;
-      if (lastSrc + 1 >= _source.length && _sourceFetch != null && _sourceHasMore) {
-        final page = await _sourceFetch!(limit: _sourcePageSize, offset: _sourceFetchedCount);
-        if (epoch != _queueEpoch) return;
-        _sourceFetchedCount += page.length;
-        _sourceHasMore = page.length >= _sourcePageSize;
-        final known = {for (final t in _source) t.id};
-        _source.addAll(page.where((t) => known.add(t.id)));
-        lastSrc = _source.indexWhere((t) => t.id == state.queue.last.id);
-        if (lastSrc < 0) return;
-      }
-      final more = _source.sublist(lastSrc + 1, (lastSrc + 1 + _kWindow).clamp(0, _source.length));
+      final more = await _queue.upcomingAfter(state.queue.last);
       if (more.isEmpty) return;
       state = state.copyWith(queue: [...state.queue, ...more]);
     } catch (e) {
@@ -689,47 +549,22 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
-  /// Ajoute jusqu'à [_kWindow] titres précédents (toujours déjà connus).
+  /// Ajoute jusqu'à [PlayQueue.window] titres précédents (toujours déjà connus).
   Future<void> loadMorePrevious() async {
     if (_extendingBackward || state.queue.isEmpty) return;
     _extendingBackward = true;
     try {
-      final firstSrc = _source.indexWhere((t) => t.id == state.queue.first.id);
-      if (firstSrc <= 0) return;
-      final more = _source.sublist((firstSrc - _kWindow).clamp(0, firstSrc), firstSrc);
-      state = state.copyWith(
-        queue: [...more, ...state.queue],
-        currentIndex: state.currentIndex + more.length,
-      );
+      final more = _queue.previousBefore(state.queue.first);
+      if (more.isEmpty) return;
+      state = state.copyWith(queue: [...more, ...state.queue], currentIndex: state.currentIndex + more.length);
     } finally {
       _extendingBackward = false;
     }
   }
 
-  bool get loadedAllPrevious =>
-      state.queue.isEmpty || _source.indexWhere((t) => t.id == state.queue.first.id) <= 0;
+  bool get loadedAllPrevious => _queue.loadedAllPrevious(state.queue.firstOrNull);
 
-  bool get loadedAllUpcoming =>
-      state.queue.isEmpty ||
-      (!_sourceHasMore && _source.indexWhere((t) => t.id == state.queue.last.id) >= _source.length - 1);
-
-  /// Remplace la portion de [_source] couverte par [oldWindow] par [newWindow]
-  /// (après un ajout / retrait / réordonnancement dans la file affichée).
-  void _replaceWindowInSource(List<Track> oldWindow, List<Track> newWindow) {
-    if (oldWindow.isEmpty) {
-      _source = [...newWindow];
-      return;
-    }
-    final start = _source.indexWhere((t) => t.id == oldWindow.first.id);
-    final end = _source.indexWhere((t) => t.id == oldWindow.last.id);
-    if (start < 0 || end < start) return;
-    final ids = {for (final t in newWindow) t.id};
-    _source = [
-      ..._source.sublist(0, start).where((t) => !ids.contains(t.id)),
-      ...newWindow,
-      ..._source.sublist(end + 1).where((t) => !ids.contains(t.id)),
-    ];
-  }
+  bool get loadedAllUpcoming => _queue.loadedAllUpcoming(state.queue.lastOrNull);
 
   Future<void> seekTo(Duration position) => _core.seek(position);
 
@@ -800,7 +635,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // L'index courant peut se décaler si on insère avant lui
     var idx = state.currentIndex;
     if (insertAt <= idx) idx += 1;
-    _replaceWindowInSource(state.queue, list);
+    _queue.replaceWindow(state.queue, list);
     state = state.copyWith(queue: list, currentIndex: idx);
   }
 
@@ -818,7 +653,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final list = [...state.queue]..removeAt(index);
     var idx = state.currentIndex;
     if (index < idx) idx -= 1; // décalage si on retire avant le courant
-    _replaceWindowInSource(state.queue, list);
+    _queue.replaceWindow(state.queue, list);
     state = state.copyWith(queue: list, currentIndex: idx);
   }
 
@@ -834,7 +669,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // Recalcule l'index courant via l'id du titre joué
     final curId = state.currentTrack?.id;
     final newCur = curId == null ? state.currentIndex : list.indexWhere((t) => t.id == curId);
-    _replaceWindowInSource(state.queue, list);
+    _queue.replaceWindow(state.queue, list);
     state = state.copyWith(queue: list, currentIndex: newCur < 0 ? state.currentIndex : newCur);
   }
 
@@ -859,18 +694,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (auto && state.isLoading) return;
     final cur = state.currentTrack;
     if (cur == null) return;
-    var srcIdx = _source.indexWhere((t) => t.id == cur.id);
-    if (srcIdx >= _source.length - 1 && _sourceHasMore) {
-      await loadMoreUpcoming();
-      srcIdx = _source.indexWhere((t) => t.id == cur.id);
-    }
-    if (_source.length < 2) {
+    final srcIdx = _queue.indexOfId(cur.id);
+    if (srcIdx >= _queue.length - 1 && _queue.hasMore) await loadMoreUpcoming();
+    if (_queue.length < 2) {
       // Un seul titre : on le rejoue (la liste boucle sur elle-même).
       if (!await _restartCurrent(cur)) await _playFromSource(cur);
       return;
     }
-    final nextIdx = nextSourceIndex(length: _source.length, current: srcIdx, shuffle: state.isShuffle);
-    await _playFromSource(_source[nextIdx]);
+    await _playFromSource(_queue.nextOf(cur, shuffle: state.isShuffle));
   }
 
   @override
