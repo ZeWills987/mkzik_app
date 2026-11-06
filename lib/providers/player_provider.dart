@@ -242,6 +242,16 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         s.contains('sourceNotSupported');
   }
 
+  /// Lance la lecture SANS attendre sa fin. Le Future de `AudioPlayer.play()` ne
+  /// se termine qu'à la fin du titre (ou à la pause) : l'attendre laissait
+  /// `isLoading` à vrai pendant toute l'écoute, ce qui bloquait la pause de
+  /// l'app et l'enchaînement automatique, et retardait le suivi d'écoute.
+  void _play() {
+    unawaited(_audio.play().catchError((Object e) {
+      mkLog('Mkzik ▶ play() erreur : $e');
+    }));
+  }
+
   // Configure la session audio (catégorie musique) — requis pour une lecture
   // fiable en arrière-plan et avec les formats type .m4a/AAC.
   Future<void> _initAudioSession() async {
@@ -367,7 +377,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
             unawaited(Future.microtask(() async {
               try {
                 await _audio.seek(prevPos, index: prevPIdx);
-                if (!_audio.playing) await _audio.play();
+                if (!_audio.playing) _play();
               } catch (e) {
                 mkLog('Mkzik ▶ restitution impossible : $e');
               }
@@ -422,7 +432,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (!_resolver.isLoadedSourceValid(cur)) return false;
     try {
       await _audio.seek(Duration.zero);
-      await _audio.play();
+      _play();
     } catch (e) {
       mkLog('Mkzik ▶ reprise au début impossible, rechargement : $e');
       return false;
@@ -733,7 +743,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         }
         await _applyNativeLoopMode();
         await _audio.setShuffleModeEnabled(state.isShuffle);
-        await _audio.play();
+        _play();
         started = true;
         // Flux prêt → on retire le spinner.
         closeStreamJob();
@@ -1007,7 +1017,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (_audio.playing) {
       await _audio.pause();
     } else {
-      await _audio.play();
+      _play();
     }
   }
 
