@@ -5,6 +5,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/format.dart';
 import '../../utils/window_prefs.dart';
 
 class AccountSettingsScreen extends ConsumerStatefulWidget {
@@ -517,7 +518,7 @@ class _SessionCard extends StatelessWidget {
     if (diff.inHours < 1) return 'Il y a ${diff.inMinutes} min';
     if (diff.inDays < 1) return 'Il y a ${diff.inHours} h';
     if (diff.inDays < 7) return 'Il y a ${diff.inDays} j';
-    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+    return formatDateFr(dt);
   }
 
   @override

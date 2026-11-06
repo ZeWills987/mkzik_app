@@ -1,4 +1,8 @@
+import '../utils/format.dart';
 import 'pex.dart';
+
+// Ces deux fonctions vivaient ici : ré-exportées pour ne pas casser les imports existants.
+export '../utils/format.dart' show formatCount, timeAgoFr;
 
 /// Modèle de domaine d'une track — **données pures**, sans dépendance Flutter.
 /// Tout l'habillage visuel (couleurs, décor) vit dans `track_visuals.dart`.
@@ -103,11 +107,7 @@ class Track {
   /// Seed stable pour dériver couleurs / décor (cf. track_visuals.dart).
   int get visualSeed => apiId ?? id.hashCode;
 
-  String get durationFormatted {
-    final m = duration.inMinutes;
-    final s = duration.inSeconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
+  String get durationFormatted => formatDuration(duration);
 
   /// Likes formatés pour l'affichage : 12400 → "12.4k".
   String get likesLabel => formatCount(likesCount);
@@ -295,41 +295,6 @@ extension TrackExtPlatform on Track {
     }
     return found.toList();
   }
-}
-
-/// Formate un compteur : 12400 → "12.4k", 1200000 → "1.2M". (Utilitaire pur.)
-String formatCount(int n) {
-  if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
-  if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}k';
-  return '$n';
-}
-
-/// Durée écoulée depuis [date] en français : "à l'instant", "il y a une minute",
-/// "il y a 3 jours", "il y a 2 mois", "il y a un an"… (Utilitaire pur.)
-String timeAgoFr(DateTime date) {
-  final diff = DateTime.now().difference(date);
-  // Date dans le futur ou quasi instantanée → "à l'instant"
-  if (diff.inSeconds < 60) return "à l'instant";
-  if (diff.inMinutes < 60) {
-    final m = diff.inMinutes;
-    return m == 1 ? 'il y a une minute' : 'il y a $m minutes';
-  }
-  if (diff.inHours < 24) {
-    final h = diff.inHours;
-    return h == 1 ? 'il y a une heure' : 'il y a $h heures';
-  }
-  if (diff.inDays < 30) {
-    final d = diff.inDays;
-    return d == 1 ? 'il y a un jour' : 'il y a $d jours';
-  }
-  if (diff.inDays < 365) {
-    final months = (diff.inDays / 30).floor();
-    return months <= 1 ? 'il y a un mois' : 'il y a $months mois';
-  }
-  final years = (diff.inDays / 365).floor();
-  if (years < 10) return years <= 1 ? 'il y a un an' : 'il y a $years ans';
-  final decades = (years / 10).floor();
-  return decades <= 1 ? 'il y a une décennie' : 'il y a $decades décennies';
 }
 
 // ── Données de démonstration (utilisées seulement si DEMO=true) ───────────────

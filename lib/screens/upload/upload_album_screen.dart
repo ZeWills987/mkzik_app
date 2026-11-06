@@ -7,6 +7,7 @@ import '../../providers/notice_provider.dart';
 import '../../services/album_service.dart';
 import '../../services/track_upload_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/format.dart';
 import '../../widgets/tappable.dart';
 
 const _kGenres = [
@@ -195,8 +196,7 @@ class _UploadAlbumScreenState extends ConsumerState<UploadAlbumScreen> {
                   ),
                 );
                 if (picked != null) {
-                  _dateCtrl.text =
-                      '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+                  _dateCtrl.text = formatDateIso(picked);
                 }
               },
             ),

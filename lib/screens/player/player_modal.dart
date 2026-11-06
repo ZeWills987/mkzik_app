@@ -14,6 +14,7 @@ import '../../widgets/ambient_background.dart';
 import '../../widgets/track_cover.dart';
 import '../../widgets/track_actions.dart';
 import '../../widgets/tappable.dart';
+import '../../utils/format.dart';
 import '../../utils/media.dart';
 import '../profile/profile_screen.dart';
 import 'widgets/player_scene_painter.dart';
@@ -432,12 +433,6 @@ class _WaveformAndTime extends ConsumerWidget {
   final Color accentLight;
   const _WaveformAndTime({required this.track, required this.accentLight});
 
-  String _fmt(Duration d) {
-    final m = d.inMinutes;
-    final s = d.inSeconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final position = ref.watch(playerProvider.select((s) => s.position));
@@ -462,9 +457,9 @@ class _WaveformAndTime extends ConsumerWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(_fmt(position), style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            Text(formatDuration(position), style: const TextStyle(color: Colors.white70, fontSize: 11)),
             Text(
-              duration == Duration.zero ? track.durationFormatted : _fmt(duration),
+              duration == Duration.zero ? track.durationFormatted : formatDuration(duration),
               style: const TextStyle(color: Colors.white70, fontSize: 11),
             ),
           ],

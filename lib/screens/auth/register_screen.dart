@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/format.dart';
 import 'auth_widgets.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -48,7 +49,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       ),
     );
     if (picked != null) {
-      _birthDate.text = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+      _birthDate.text = formatDateIso(picked);
     }
   }
 
