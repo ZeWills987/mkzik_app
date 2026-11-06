@@ -10,9 +10,12 @@ import 'package:audio_session/audio_session.dart';
 import 'package:smtc_windows/smtc_windows.dart' hide RepeatMode;
 import '../config/api_config.dart';
 import '../models/track.dart';
+import '../player/core/play_tracker.dart';
+import '../player/core/track_resolver.dart';
 import '../services/external_track_service.dart';
 import '../services/track_service.dart';
 import '../services/radio_service.dart';
+import '../utils/format.dart';
 import '../utils/media.dart';
 import 'import_provider.dart';
 import 'favourites_provider.dart';
@@ -91,14 +94,8 @@ class PlayerState {
   // next/previous étant cycliques, on peut sauter dès qu'il y a >1 titre
   bool get canSkip => queue.length > 1;
 
-  String _fmt(Duration d) {
-    final m = d.inMinutes;
-    final s = d.inSeconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
-
-  String get positionFormatted => _fmt(position);
-  String get durationFormatted => _fmt(duration);
+  String get positionFormatted => formatDuration(position);
+  String get durationFormatted => formatDuration(duration);
 }
 
 class PlayerNotifier extends StateNotifier<PlayerState> {
@@ -108,10 +105,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   // Jeton anti-concurrence : invalide les chargements obsolètes (taps rapides)
   int _playToken = 0;
 
-  // URLs signées S3 déjà obtenues, par apiId — réutilisées tant qu'elles n'expirent pas.
-  final Map<int, SignedAudio> _signedCache = {};
-  // Marge avant expiration : une URL qui expire dans la minute est considérée périmée.
-  static const _signedExpiryMargin = Duration(seconds: 60);
+  // Logique pure extraite dans lib/player/core/ :
+  // titre → URL jouable (URL signée S3 en cache / flux Python) et suivi d'écoute.
+  final TrackResolver _resolver = TrackResolver();
+  final PlayTracker _tracker = PlayTracker();
 
   // Windows : la playlist native ne contient QUE le titre en cours. WinRT émet
   // de faux changements d'index à chaque insertion/suppression dans sa
@@ -143,11 +140,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   // Titres réellement présents dans _playlist (sous-ensemble jouable de la file :
   // les externes non importés en sont exclus). Parallèle aux enfants de _playlist.
   List<Track> _playerTracks = [];
-  // Tracking d'écoute (POST /api/plays + PATCH complete)
-  int? _playId; // playId de l'écoute en cours
-  Track? _playTrack; // titre suivi par cette écoute
-  int _playMaxMs = 0; // position max atteinte → listenedSeconds
-
   // Autoplay radio : extension de la file par suggestions en fin de liste.
   bool _radioBusy = false; // une extension est déjà en cours
   String? _radioFromId; // id du titre depuis lequel on a déjà étendu (anti-doublon)
@@ -176,8 +168,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // Écoute de la position en temps réel
     _audio.positionStream.listen((pos) {
       state = state.copyWith(position: pos);
-      final ms = pos.inMilliseconds;
-      if (_playTrack != null && ms > _playMaxMs) _playMaxMs = ms;
+      _tracker.onPosition(pos);
     }, onError: (Object e) => mkLog('Mkzik ▶ positionStream erreur : $e'));
 
     // Écoute de la durée quand un titre est chargé
@@ -397,7 +388,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     // Vrai changement de titre (auto-avance / skip) → clôt l'écoute précédente
     // et démarre la nouvelle.
     if (!sameTrack) {
-      unawaited(_finishPlay());
+      unawaited(_tracker.finish());
       unawaited(_beginPlay(t));
     }
     // Autoplay radio : quand le titre courant est le DERNIER de la file, on
@@ -415,77 +406,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   // ── Tracking d'écoute (POST /api/plays + PATCH complete) ────────────────────
 
-  // Démarre une écoute pour [t] (récupère le playId du backend).
+  // Démarre une écoute pour [t] (le suivi lui-même vit dans PlayTracker).
   Future<void> _beginPlay(Track t) async {
     _updateSmtcMetadata(t); // met à jour le panneau média Windows (no-op ailleurs)
-    _playTrack = t;
-    _playMaxMs = 0;
-    _playId = null;
-    if (t.apiId == null) return;
-    final id = await TrackService.startPlay(t.apiId!);
-    if (_playTrack?.id == t.id) {
-      _playId = id;
-    } else if (id != null) {
-      // Le titre a changé pendant l'await (skip rapide) : cette écoute ne sera
-      // jamais clôturée par _finishPlay → on la clôt tout de suite à 0s pour ne
-      // pas laisser d'écoute orpheline côté backend.
-      unawaited(TrackService.completePlay(id, listenedSeconds: 0, completed: false));
-    }
-  }
-
-  // Clôt l'écoute en cours : envoie les secondes écoutées + si terminée (~90%).
-  Future<void> _finishPlay() async {
-    final id = _playId;
-    final t = _playTrack;
-    final maxMs = _playMaxMs;
-    _playId = null;
-    _playTrack = null;
-    _playMaxMs = 0;
-    if (id == null || t == null) return;
-    final durMs = t.duration.inMilliseconds;
-    final completed = durMs > 0 && maxMs >= durMs * 0.9;
-    await TrackService.completePlay(id, listenedSeconds: maxMs / 1000.0, completed: completed);
-  }
-
-  bool _isSignedFresh(SignedAudio s) =>
-      s.expiresAt != null && s.expiresAt!.isAfter(DateTime.now().add(_signedExpiryMargin));
-
-  Future<String?> _signedUrlFor(int apiId) async {
-    final cached = _signedCache[apiId];
-    if (cached != null && _isSignedFresh(cached)) return cached.url;
-    final signed = await TrackService.getSignedAudio(apiId);
-    if (signed == null) return null;
-    _signedCache[apiId] = signed;
-    return signed.url;
-  }
-
-  Future<Map<int, String>> _signedUrlsFor(List<int> ids) async {
-    final out = <int, String>{};
-    final missing = <int>[];
-    for (final id in ids) {
-      final cached = _signedCache[id];
-      if (cached != null && _isSignedFresh(cached)) {
-        out[id] = cached.url;
-      } else {
-        missing.add(id);
-      }
-    }
-    if (missing.isNotEmpty) {
-      final fetched = await TrackService.getSignedAudioBatch(missing);
-      fetched.forEach((id, s) {
-        _signedCache[id] = s;
-        out[id] = s.url;
-      });
-    }
-    return out;
-  }
-
-  /// La source déjà chargée peut-elle être relue telle quelle ? Faux si c'est une
-  /// URL signée expirée (ou dont l'expiration est inconnue) → il faut re-signer.
-  bool _loadedSourceStillValid(Track t) {
-    final id = t.apiId;
-    final signed = id == null ? null : _signedCache[id];
-    return signed == null || _isSignedFresh(signed);
+    await _tracker.begin(t);
   }
 
   /// Titre demandé = titre déjà chargé, URL encore valide → retour au début
@@ -495,7 +419,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (cur == null || cur.id != track.id || state.isLoading) return false;
     final ps = _audio.processingState;
     if (ps == ProcessingState.idle || ps == ProcessingState.loading) return false;
-    if (!_loadedSourceStillValid(cur)) return false;
+    if (!_resolver.isLoadedSourceValid(cur)) return false;
     try {
       await _audio.seek(Duration.zero);
       await _audio.play();
@@ -503,7 +427,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       mkLog('Mkzik ▶ reprise au début impossible, rechargement : $e');
       return false;
     }
-    await _finishPlay();
+    await _tracker.finish();
     unawaited(_beginPlay(cur));
     return true;
   }
@@ -742,10 +666,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     );
 
     // Clôt l'écoute du titre précédent avant d'en démarrer une nouvelle
-    unawaited(_finishPlay());
+    unawaited(_tracker.finish());
 
     // Résout le titre sélectionné (import si externe → URL signée)
-    final current = await _resolvePlayable(track);
+    final current = await _resolver.resolvePlayable(track);
     if (token != _playToken) return;
 
     if (current == null || current.audioUrl.isEmpty) {
@@ -902,7 +826,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       final streamIdx = all.indexWhere((t) => t.needsStream);
       final tracks = streamIdx < 0 ? all : all.sublist(0, streamIdx);
       if (tracks.isEmpty) return;
-      final resolved = await _resolveBatch(tracks);
+      final resolved = await _resolver.resolveBatch(tracks);
       if (token != _playToken || _playlist == null) return;
       // La file a pu bouger pendant la signature : on n'ajoute que si la
       // playlist native s'arrête toujours juste avant ces titres.
@@ -947,42 +871,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
 
-  /// Rend un track réellement jouable :
-  /// • `isSymfonyPlayable` (interne OU externe `in_mkzik`) → URL signée Symfony.
-  /// • `needsStream` (externe pur, non dans la BD) → flux temps réel Python.
-  ///   L'import S3 reste une action explicite (bouton), jamais un effet de bord du play.
-  Future<Track?> _resolvePlayable(Track track) async {
-    var t = track;
-
-    if (t.needsStream) {
-      if (t.pageUrl.isEmpty) return null;
-      return t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
-    }
-
-    // Symfony : URL signée si l'audio n'est pas directement jouable
-    if (!t.hasPlayableUrl && t.apiId != null) {
-      final signed = await _signedUrlFor(t.apiId!);
-      if (signed != null && signed.isNotEmpty) t = t.copyWith(audioUrl: signed);
-    }
-
-    return t.audioUrl.isNotEmpty ? t : null;
-  }
-
-  /// Résolution légère pour les autres titres de la file (préchargement).
-  /// Même logique que [_resolvePlayable] : Symfony pour `isSymfonyPlayable`,
-  /// flux Python pour `needsStream`. Renvoie null si injouable.
-  /// Sur Windows, les flux temps réel (needsStream) ne sont pas supportés par
-  /// WinRT (sourceNotSupportedError) → on les exclut de la file silencieusement.
-  Future<Track?> _resolveForQueue(Track t) async {
-    if (t.hasPlayableUrl) return t;
-    if (t.needsStream) return null; // résolu uniquement quand la track devient courante
-    if (t.apiId != null) {
-      final signed = await _signedUrlFor(t.apiId!);
-      if (signed != null && signed.isNotEmpty) return t.copyWith(audioUrl: signed);
-    }
-    return null;
-  }
-
   // ── Autoplay radio (suggestions en fin de file) ─────────────────────────────
 
   /// Étend la file avec des suggestions liées au dernier titre, pour enchaîner
@@ -1013,7 +901,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       final resolved = <Track>[];
       final sources = <AudioSource>[];
       for (final t in fresh.take(10)) {
-        final r = await _resolveForQueue(t);
+        final r = await _resolver.resolveForQueue(t);
         if (r == null || r.audioUrl.isEmpty) continue;
         resolved.add(r);
         sources.add(_audioSourceFor(r));
@@ -1054,7 +942,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       final resolved = <Track>[];
       final sources = <AudioSource>[];
       for (final t in fresh.take(20)) {
-        final r = await _resolveForQueue(t);
+        final r = await _resolver.resolveForQueue(t);
         if (token != _playToken) return false;
         if (r == null || r.audioUrl.isEmpty) continue;
         resolved.add(r);
@@ -1212,23 +1100,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       state.queue.isEmpty ||
       (!_sourceHasMore && _source.indexWhere((t) => t.id == state.queue.last.id) >= _source.length - 1);
 
-  /// Résout des titres pour la playlist native (URL signée en lot / flux Python).
-  Future<List<Track?>> _resolveBatch(List<Track> tracks) async {
-    final signed = await _signedUrlsFor([
-      for (final t in tracks)
-        if (!t.hasPlayableUrl && !t.needsStream && t.apiId != null) t.apiId!,
-    ]);
-    return [
-      for (final t in tracks)
-        if (t.hasPlayableUrl)
-          t
-        else if (t.needsStream)
-          (t.pageUrl.isNotEmpty ? t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl)) : null)
-        else
-          (t.apiId != null && signed[t.apiId!] != null ? t.copyWith(audioUrl: signed[t.apiId!]) : null),
-    ];
-  }
-
   /// Remplace la portion de [_source] couverte par [oldWindow] par [newWindow]
   /// (après un ajout / retrait / réordonnancement dans la file affichée).
   void _replaceWindowInSource(List<Track> oldWindow, List<Track> newWindow) {
@@ -1311,7 +1182,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     //   la file UI mais PAS à la playlist native → sauté à l'auto-avance).
     var t = track;
     if (!t.hasPlayableUrl && !t.needsImport && t.apiId != null) {
-      final signed = await _signedUrlFor(t.apiId!);
+      final signed = await _resolver.signedUrlFor(t.apiId!);
       if (signed != null && signed.isNotEmpty) t = t.copyWith(audioUrl: signed);
     } else if (t.needsStream && t.pageUrl.isNotEmpty && !t.hasPlayableUrl) {
       t = t.copyWith(audioUrl: ApiConfig.streamUrl(t.pageUrl));
@@ -1446,7 +1317,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   @override
   void dispose() {
-    unawaited(_finishPlay()); // clôt l'écoute en cours
+    unawaited(_tracker.finish()); // clôt l'écoute en cours
     unawaited(_smtc?.dispose());
     _audio.dispose();
     super.dispose();
