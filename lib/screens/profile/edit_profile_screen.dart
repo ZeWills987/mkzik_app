@@ -9,6 +9,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../services/profile_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/format.dart';
 import '../../utils/media.dart';
 import '../../widgets/tappable.dart';
 import '../auth/auth_widgets.dart';
@@ -80,8 +81,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       ),
     );
     if (picked != null) {
-      setState(() => _birthDate =
-          '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}');
+      setState(() => _birthDate = formatDateIso(picked));
     }
   }
 
