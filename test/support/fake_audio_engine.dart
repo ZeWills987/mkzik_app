@@ -20,7 +20,14 @@ class FakeAudioEngine implements AudioEngine {
   /// Si non null, `load` attend ce Completer (simule un chargement lent).
   Completer<void>? loadGate;
 
+  /// Voisins demandés par le notifier (dernier appel à `setNeighbors`).
+  Track? neighborPrevious;
+  Track? neighborNext;
+  int setNeighborsCalls = 0;
+  bool neighbors = false;
+
   bool _playing = false;
+  final _movedC = StreamController<Track>.broadcast();
   final _playingC = StreamController<bool>.broadcast();
   final _completedC = StreamController<void>.broadcast();
   final _errorsC = StreamController<Object>.broadcast();
@@ -32,6 +39,11 @@ class FakeAudioEngine implements AudioEngine {
   void emitError(Object e) => _errorsC.add(e);
   void emitPosition(Duration d) => _positionC.add(d);
   void emitDuration(Duration d) => _durationC.add(d);
+
+  /// Simule un changement de titre fait par le moteur (enchaînement ou bouton
+  /// de notification) vers le voisin demandé.
+  void moveToNext() => _movedC.add(neighborNext!);
+  void moveToPrevious() => _movedC.add(neighborPrevious!);
 
   // ── AudioEngine ───────────────────────────────────────────────────────────
   @override
@@ -89,7 +101,21 @@ class FakeAudioEngine implements AudioEngine {
   Stream<Object> get errorStream => _errorsC.stream;
 
   @override
+  bool get supportsNeighbors => neighbors;
+
+  @override
+  Future<void> setNeighbors({Track? previous, Track? next}) async {
+    setNeighborsCalls++;
+    neighborPrevious = previous;
+    neighborNext = next;
+  }
+
+  @override
+  Stream<Track> get movedToNeighbor => _movedC.stream;
+
+  @override
   Future<void> dispose() async {
+    await _movedC.close();
     await _playingC.close();
     await _completedC.close();
     await _errorsC.close();

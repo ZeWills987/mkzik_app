@@ -367,4 +367,109 @@ void main() {
       expect(ids(st().queue), ['a', 'b']);
     });
   });
+
+  group('voisins dans le moteur (notification, sans coupure)', () {
+    setUp(() => engine.neighbors = true);
+
+    test('le moteur reçoit le précédent et le suivant du titre lancé', () async {
+      await player.playTrack(a, queue: [a, b, c]);
+      await settle();
+      expect(engine.neighborNext?.id, 'b');
+      expect(engine.neighborPrevious?.id, 'c'); // la liste boucle
+    });
+
+    test("moteur sans voisins (Windows) : rien n'est envoyé", () async {
+      engine.neighbors = false;
+      await player.playTrack(a, queue: [a, b, c]);
+      await settle();
+      expect(engine.setNeighborsCalls, 0);
+    });
+
+    test('suivant choisi par le moteur : état aligné, écoute clôturée, voisins recalculés', () async {
+      await player.playTrack(a, queue: [a, b, c]);
+      await settle();
+      engine.emitPosition(const Duration(seconds: 40));
+      await settle();
+      engine.moveToNext();
+      await settle();
+      expect(st().currentTrack?.id, 'b');
+      expect(st().currentIndex, 1);
+      expect(engine.loaded, hasLength(1)); // pas de rechargement : sans coupure
+      expect(closed.single, (playId: 10, seconds: 40.0, completed: false));
+      expect(started, [1, 2]);
+      expect(engine.neighborPrevious?.id, 'a');
+      expect(engine.neighborNext?.id, 'c');
+    });
+
+    test('précédent choisi par le moteur (bouton de la notification)', () async {
+      await player.playTrack(b, queue: [a, b, c]);
+      await settle();
+      engine.moveToPrevious();
+      await settle();
+      expect(st().currentTrack?.id, 'a');
+      expect(engine.loaded, hasLength(1));
+      expect(engine.neighborNext?.id, 'b');
+    });
+
+    test('mode aléatoire : le suivant prévu est celui que « suivant » joue', () async {
+      await player.playTrack(a, queue: [a, b, c, _t('d', apiId: 4), _t('e', apiId: 5)]);
+      await settle();
+      player.toggleShuffle();
+      await settle();
+      final planned = engine.neighborNext!.id;
+      expect(planned, isNot('a'));
+      await player.next();
+      await settle();
+      expect(st().currentTrack?.id, planned);
+    });
+
+    test('titre ajouté en « jouer ensuite » : il devient le voisin suivant', () async {
+      await player.playTrack(a, queue: [a, b, c]);
+      await settle();
+      await player.addToList(_t('d', apiId: 4), playNext: true);
+      await settle();
+      expect(engine.neighborNext?.id, 'd');
+    });
+
+    test('un seul titre : pas de voisin', () async {
+      await player.playTrack(a);
+      await settle();
+      expect(engine.neighborNext, isNull);
+      expect(engine.neighborPrevious, isNull);
+    });
+
+    test('titre externe (flux sans URL) : pas de voisin, la file enchaîne seule', () async {
+      final ext = Track(
+        id: 'x',
+        title: 'Externe',
+        artist: 'A',
+        coverUrl: '',
+        duration: const Duration(minutes: 3),
+        audioUrl: '',
+        source: 'ytm',
+        pageUrl: 'https://yt/x',
+      );
+      await player.playTrack(a, queue: [a, ext]);
+      await settle();
+      expect(engine.neighborNext, isNull);
+      engine.finishTrack(); // fin de a : l'enchaînement passe par la file
+      await settle();
+      expect(engine.loaded.map((t) => t.id), ['a', 'x']);
+    });
+
+    test('changement de titre du moteur pendant un chargement : ignoré', () async {
+      await player.playTrack(a, queue: [a, b, c]);
+      await settle();
+      engine.loadGate = Completer<void>();
+      final f = player.jumpTo(2);
+      await settle();
+      engine.moveToNext();
+      await settle();
+      expect(st().currentTrack?.id, 'c');
+      engine.loadGate!.complete();
+      await f;
+      await settle();
+      expect(st().currentTrack?.id, 'c');
+    });
+  });
 }

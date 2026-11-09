@@ -136,6 +136,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   // La liste lue (tout ce qui est connu) ; state.queue n'en est qu'une fenêtre.
   final PlayQueue _queue = PlayQueue();
+  // Suivant prévu en mode aléatoire : mémorisé pour que le moteur (gapless,
+  // bouton de notification) et « suivant » dans l'appli jouent le même titre.
+  Track? _plannedNext;
   bool _extendingForward = false;
   bool _extendingBackward = false;
 
@@ -185,6 +188,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       unawaited(Future.microtask(() => _advanceFromQueue(auto: true)));
     }, onError: (Object e) => mkLog('Mkzik ▶ completedStream erreur : $e')));
 
+    // Le moteur a changé de titre de lui-même (enchaînement sans coupure ou
+    // bouton suivant / précédent de la notification).
+    _subs.add(_engine.movedToNeighbor.listen(_onEngineMoved));
+
     // Erreurs de flux EN COURS de lecture (URL signée expirée, stream yt-dlp qui meurt…).
     _subs.add(_engine.errorStream.listen(_onPlaybackError));
 
@@ -220,6 +227,67 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       notices.show(unavailable ? 'Titre indisponible' : 'Lecture interrompue, réessaie');
       state = state.copyWith(isPlaying: false);
     }
+  }
+
+  // ── Voisins du titre courant (notification + sans coupure) ──────────────────
+
+  /// Titre qui suit [cur] : le suivant de la liste, ou en mode aléatoire celui
+  /// qui a été tiré (conservé tant que le titre courant ne change pas).
+  Track _plannedNextFor(Track cur) {
+    if (!state.isShuffle) {
+      _plannedNext = null;
+      return _queue.nextOf(cur, shuffle: false);
+    }
+    final p = _plannedNext;
+    if (p != null && p.id != cur.id && _queue.indexOfId(p.id) >= 0) return p;
+    return _plannedNext = _queue.nextOf(cur, shuffle: true);
+  }
+
+  /// Donne au moteur le titre précédent et le suivant, déjà résolus. Un titre
+  /// externe (flux sans URL) n'en est pas un : il garde l'enchaînement par la file.
+  Future<void> _refreshNeighbors({bool force = false}) async {
+    if (!_engine.supportsNeighbors || (state.isLoading && !force)) return;
+    final cur = state.currentTrack;
+    final token = _playToken;
+    if (cur == null || _queue.length < 2) {
+      await _engine.setNeighbors();
+      return;
+    }
+    if (_queue.indexOfId(cur.id) >= _queue.length - 1 && _queue.hasMore) await loadMoreUpcoming();
+    if (token != _playToken) return;
+    final next = _plannedNextFor(cur);
+    final prev = _queue.previousOf(cur);
+    final resolved = await Future.wait([_resolver.resolveForQueue(next), _resolver.resolveForQueue(prev)]);
+    if (token != _playToken || state.currentTrack?.id != cur.id) return;
+    Track? usable(Track? t) => (t != null && t.audioUrl.isNotEmpty) ? t : null;
+    await _engine.setNeighbors(next: usable(resolved[0]), previous: usable(resolved[1]));
+  }
+
+  /// Le moteur joue déjà [t] : on aligne l'état, on clôt l'écoute du titre
+  /// précédent, on démarre celle-ci et on prépare les nouveaux voisins.
+  void _onEngineMoved(Track t) {
+    if (state.isLoading || state.currentTrack == null) return;
+    _playToken++; // annule tout chargement ou préparation de voisin en cours
+    _plannedNext = null;
+    _radioFromId = null;
+    var q = [...state.queue];
+    var idx = q.indexWhere((x) => x.id == t.id);
+    if (idx < 0) {
+      q = _queue.windowAround(t);
+      idx = q.indexWhere((x) => x.id == t.id);
+    }
+    q[idx] = t;
+    unawaited(_tracker.finish());
+    state = state.copyWith(
+      currentTrack: t,
+      queue: q,
+      currentIndex: idx,
+      isLiked: t.isFavoris,
+      position: Duration.zero,
+      duration: t.duration,
+    );
+    unawaited(_beginPlay(t));
+    _afterTrackStarted();
   }
 
   // Démarre une écoute pour [t] (le suivi lui-même vit dans PlayTracker).
@@ -294,6 +362,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     q.insert((state.currentIndex + 1).clamp(0, q.length), t);
     _queue.insertAfter(cur, t);
     state = state.copyWith(queue: q);
+    unawaited(_refreshNeighbors());
     notices.show('« ${t.title} » sera joué ensuite', icon: NoticeIcon.playNext);
   }
 
@@ -341,6 +410,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       selIdx = 0;
     }
     _radioFromId = null; // nouvelle file → autorise une nouvelle extension radio
+    _plannedNext = null;
 
     // Ferme EN FORCE la bannière de stream du titre précédent si elle traîne
     // encore : sa résolution est désormais obsolète (token changé), inutile
@@ -447,6 +517,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       unawaited(_maybeExtendWithRadio());
     }
     unawaited(_ensureWindow());
+    unawaited(_refreshNeighbors(force: true));
   }
 
   // ── Autoplay radio (suggestions en fin de file) ─────────────────────────────
@@ -468,6 +539,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       if (token != _playToken || resolved.isEmpty) return;
       _queue.addAll(resolved);
       state = state.copyWith(queue: [...state.queue, ...resolved]);
+      unawaited(_refreshNeighbors());
       mkLog('Mkzik 📻 radio +${resolved.length} titres (seed "${seed.title}")');
     } catch (e) {
       mkLog('Mkzik 📻 radio erreur : $e');
@@ -501,6 +573,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         currentIndex: history.length,
       );
       _radioFromId = null; // autorise l'extension auto quand on atteindra la fin
+      _plannedNext = null;
+      unawaited(_refreshNeighbors());
       mkLog('Mkzik 📻 mode radio : ${resolved.length} titres (seed "${seed.title}")');
       return true;
     } catch (e) {
@@ -637,6 +711,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (insertAt <= idx) idx += 1;
     _queue.replaceWindow(state.queue, list);
     state = state.copyWith(queue: list, currentIndex: idx);
+    unawaited(_refreshNeighbors());
   }
 
   /// Saute directement à un titre de la file (tap dans la current list).
@@ -655,6 +730,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (index < idx) idx -= 1; // décalage si on retire avant le courant
     _queue.replaceWindow(state.queue, list);
     state = state.copyWith(queue: list, currentIndex: idx);
+    unawaited(_refreshNeighbors());
   }
 
   /// Réordonne la file (drag & drop) en gardant le titre courant synchronisé.
@@ -671,11 +747,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final newCur = curId == null ? state.currentIndex : list.indexWhere((t) => t.id == curId);
     _queue.replaceWindow(state.queue, list);
     state = state.copyWith(queue: list, currentIndex: newCur < 0 ? state.currentIndex : newCur);
+    unawaited(_refreshNeighbors());
   }
 
   /// Mode aléatoire : le prochain titre est tiré au hasard dans la liste d'origine.
   void toggleShuffle() {
     state = state.copyWith(isShuffle: !state.isShuffle);
+    _plannedNext = null;
+    unawaited(_refreshNeighbors());
   }
 
   // Bascule entre boucle de file (all) et répétition d'un titre (one).
@@ -701,7 +780,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       if (!await _restartCurrent(cur)) await _playFromSource(cur);
       return;
     }
-    await _playFromSource(_queue.nextOf(cur, shuffle: state.isShuffle));
+    await _playFromSource(_plannedNextFor(cur));
   }
 
   @override
