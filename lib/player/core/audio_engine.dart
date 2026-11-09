@@ -44,5 +44,21 @@ abstract class AudioEngine {
   /// par [completedStream] et c'est l'appelant qui décide de la suite.
   Future<void> setRepeatOne(bool value);
 
+  /// Le moteur sait-il tenir le titre précédent et le suivant prêts à côté du
+  /// titre courant ? Cela donne les boutons suivant / précédent de la notification
+  /// et l'enchaînement sans coupure. Faux sous Windows.
+  bool get supportsNeighbors;
+
+  /// Prépare les voisins du titre chargé (chacun avec un `audioUrl` jouable ;
+  /// `null` = pas de voisin de ce côté), sans interrompre la lecture. Sans effet
+  /// si [supportsNeighbors] est faux.
+  Future<void> setNeighbors({Track? previous, Track? next});
+
+  /// Émet le voisin atteint quand le MOTEUR change de titre de lui-même (fin
+  /// enchaînée sans coupure, ou bouton de la notification). Le moteur joue alors
+  /// déjà ce titre ; l'appelant doit mettre son état à jour puis fournir de
+  /// nouveaux voisins.
+  Stream<Track> get movedToNeighbor;
+
   Future<void> dispose();
 }
