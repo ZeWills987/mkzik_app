@@ -8,8 +8,9 @@ String formatDuration(Duration d) {
   return '$m:${s.toString().padLeft(2, '0')}';
 }
 
-/// Formate un compteur : 12400 → "12.4k", 1200000 → "1.2M".
+/// Formate un compteur : 12400 → "12.4k", 1200000 → "1.2M", 1341100000 → "1.3B".
 String formatCount(int n) {
+  if (n >= 1000000000) return '${(n / 1000000000).toStringAsFixed(1)}B';
   if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
   if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}k';
   return '$n';
