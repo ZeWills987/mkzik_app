@@ -18,6 +18,10 @@ void main() {
     test('sous 1000 → entier', () => expect(formatCount(999), '999'));
     test('milliers → k', () => expect(formatCount(12400), '12.4k'));
     test('millions → M', () => expect(formatCount(1200000), '1.2M'));
+    test('milliards → B', () {
+      expect(formatCount(1341100000), '1.3B');
+      expect(formatCount(1000000000), '1.0B');
+    });
   });
 
   group('dates', () {
