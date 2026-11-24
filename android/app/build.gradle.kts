@@ -23,7 +23,8 @@ buildCounterFile.outputStream().use { buildProps.store(it, "Auto-incrément à c
 
 android {
     namespace = "fr.mkzik.app"
-    compileSdk = flutter.compileSdkVersion
+    // receive_sharing_intent 1.9.0 se compile contre le SDK 37.
+    compileSdk = maxOf(flutter.compileSdkVersion, 37)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

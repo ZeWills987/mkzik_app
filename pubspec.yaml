@@ -64,7 +64,7 @@ dependencies:
   # extension Share ajoutée manuellement dans Xcode).
   # Version pinnée : 1.9.0 exige compileSdk 37, au-delà du max recommandé par
   # l'AGP actuel (9.0.1 → 36).
-  receive_sharing_intent: 1.8.1
+  receive_sharing_intent: 1.9.0
 
 dev_dependencies:
   flutter_test:
