@@ -6,9 +6,7 @@ import '../../widgets/tappable.dart';
 import '../notifications/notifications_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/track.dart';
-import '../../models/track_visuals.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/player_provider.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/imports_provider.dart';
 import '../../providers/paginated_tracks_provider.dart';
@@ -16,7 +14,9 @@ import '../../providers/profile_provider.dart';
 import '../../config/api_config.dart';
 import '../../services/track_service.dart';
 import '../../widgets/track_card.dart';
-import '../../widgets/track_cover.dart';
+import '../../widgets/release_card.dart';
+import '../../theme/home_style.dart';
+import 'home_hero.dart';
 import '../../theme/app_theme.dart';
 import '../track_list/track_list_screen.dart';
 import '../../widgets/empty_state.dart';
@@ -44,7 +44,9 @@ class HomeScreen extends ConsumerWidget {
     final importTracks = importsState.tracks;
     final isLoadingImports = importsState.initialLoading;
 
-    return SafeArea(
+    return ColoredBox(
+      color: kHomeBg,
+      child: SafeArea(
       child: RefreshIndicator(
         color: kAccent,
         backgroundColor: kSurface,
@@ -65,16 +67,11 @@ class HomeScreen extends ConsumerWidget {
         child: CustomScrollView(
           slivers: [
             SliverToBoxAdapter(child: _Header()),
-            if (featured != null)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
-                  child: _FeaturedBanner(track: featured),
-                ),
-              ),
+            if (featured != null) SliverToBoxAdapter(child: HomeHero(tracks: tracks)),
             SliverToBoxAdapter(
               child: _SectionHeader(
                 title: 'Dernière sortie',
+                subtitle: 'Les nouveautés publiées cette semaine.',
                 onSeeAll: () => TrackListScreen.open(
                   context,
                   title: 'Dernière sortie',
@@ -85,9 +82,9 @@ class HomeScreen extends ConsumerWidget {
             ),
             SliverToBoxAdapter(
               child: SizedBox(
-                height: 272,
+                height: 250,
                 child: isLoadingNews
-                    ? const _LoadingRow(height: 272)
+                    ? const _LoadingRow(height: 250)
                     : hasNewsError
                         ? const EmptyState(
                             icon: Icons.cloud_off_rounded,
@@ -107,10 +104,9 @@ class HomeScreen extends ConsumerWidget {
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             itemCount: tracks.length,
                             separatorBuilder: (ctx, idx) => const SizedBox(width: 14),
-                            itemBuilder: (_, i) => TrackCard(
+                            itemBuilder: (_, i) => ReleaseCard(
                               track: tracks[i],
                               queue: tracks,
-                              showPublishedAt: true,
                               fetchMore: ({required int limit, required int offset}) =>
                                   TrackService.getNewsFeed(limit: limit, offset: offset),
                             ),
@@ -224,6 +220,7 @@ class HomeScreen extends ConsumerWidget {
           ],
         ),
       ),
+      ),
     );
   }
 }
@@ -289,20 +286,13 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Row(
         children: [
-          // Cercle violet avant le logo
-          Container(
-            width: 36,
-            height: 36,
-            decoration: const BoxDecoration(color: kAccent, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 10),
-          // Logo MKZIK
+          // Logo MKZIK : même coupure « MK » / « ZIK » qu'avant, dans la nouvelle police
           RichText(
-            text: const TextSpan(
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 0.5),
-              children: [
-                TextSpan(text: 'MK', style: TextStyle(color: kTextPrimary)),
-                TextSpan(text: 'ZIK', style: TextStyle(color: kAccent)),
+            text: TextSpan(
+              style: homeDisplay(size: 26),
+              children: const [
+                TextSpan(text: 'MK', style: TextStyle(color: kHomeInk)),
+                TextSpan(text: 'ZIK', style: TextStyle(color: kHomeViolet)),
               ],
             ),
           ),
@@ -367,216 +357,40 @@ class _Header extends StatelessWidget {
   }
 }
 
-// ── Bannière titre en vedette ─────────────────────────────────────────────────
-
-class _FeaturedBanner extends ConsumerWidget {
-  final Track track;
-  const _FeaturedBanner({required this.track});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Container(
-      height: 190,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        // Fond sombre légèrement teinté
-        color: const Color(0xFF0E0E1E),
-      ),
-      child: Stack(
-        children: [
-          // Lueur violet en haut à droite
-          Positioned(
-            right: -20,
-            top: -20,
-            child: Container(
-              width: 160,
-              height: 160,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [kAccent.withValues(alpha:0.25), Colors.transparent],
-                ),
-              ),
-            ),
-          ),
-
-          // Contenu principal
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Colonne gauche : textes + bouton
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Badge "TITRE EN VEDETTE"
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: kAccent.withValues(alpha:0.6), width: 1),
-                          color: kAccent.withValues(alpha:0.08),
-                        ),
-                        child: const Text(
-                          'TITRE EN VEDETTE',
-                          style: TextStyle(
-                            color: kAccentLight,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.5,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: kTextPrimary,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          height: 1.1,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${track.artist}  ·  ${track.durationFormatted}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: kTextSecondary, fontSize: 12),
-                      ),
-                      const SizedBox(height: 14),
-                      // Bouton Écouter
-                      Tappable(
-                        onTap: () => ref.read(playerProvider.notifier).playTrack(track),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: kAccent,
-                            borderRadius: BorderRadius.circular(50),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.play_arrow, color: Colors.white, size: 18),
-                              SizedBox(width: 6),
-                              Text(
-                                'Écouter',
-                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-
-                // Cover flottante à droite — carte inclinée
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Transform.rotate(
-                    angle: 0.12, // légère inclinaison
-                    child: _FloatingAlbumCard(track: track),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// Carte album flottante avec dégradé et ombre
-class _FloatingAlbumCard extends StatelessWidget {
-  final Track track;
-  const _FloatingAlbumCard({required this.track});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 115,
-      height: 115,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: track.gradientColors.first.withValues(alpha:0.5), blurRadius: 20, offset: const Offset(0, 8)),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Vraie thumbnail réseau (sinon dégradé + sphère via TrackCover)
-            TrackCover(track: track, size: 115, radius: 16),
-            // Voile sombre en bas pour la lisibilité du texte
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.center,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Colors.black.withValues(alpha: 0.55)],
-                  ),
-                ),
-              ),
-            ),
-            // Texte en bas
-            Positioned(
-              bottom: 10,
-              left: 10,
-              right: 10,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    track.title,
-                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    track.artist,
-                    style: TextStyle(color: Colors.white.withValues(alpha:0.7), fontSize: 9),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ── En-tête de section ────────────────────────────────────────────────────────
 
 class _SectionHeader extends StatelessWidget {
   final String title;
+  final String? subtitle;
   final VoidCallback? onSeeAll;
-  const _SectionHeader({required this.title, this.onSeeAll});
+  const _SectionHeader({required this.title, this.subtitle, this.onSeeAll});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 28, 16, 14),
+      padding: const EdgeInsets.fromLTRB(20, 34, 20, 16),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Text(title, style: const TextStyle(color: kTextPrimary, fontSize: 20, fontWeight: FontWeight.w800)),
-          const Spacer(),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: homeDisplay(size: 26, weight: FontWeight.w700)),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 6),
+                  Text(subtitle!, style: homeBody(size: 13, weight: FontWeight.w400, color: kHomeInkSoft)),
+                ],
+              ],
+            ),
+          ),
           if (onSeeAll != null)
             Tappable(
               onTap: onSeeAll,
-              child: const Text('Voir tout', style: TextStyle(color: kAccent, fontSize: 13, fontWeight: FontWeight.w600)),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text('VOIR TOUT', style: homeMono(size: 11, color: kHomeVioletSoft, spacing: 1.6)),
+              ),
             ),
         ],
       ),
